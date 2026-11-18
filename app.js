@@ -71,6 +71,7 @@
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
       ${select("加工", "finish", shop.finish, order?.finish)}
       ${select("納期区分", "speed", { standard: "通常", rush: "特急" }, order?.rush ? "rush" : "standard")}
+      ${field("入力原稿締め切り", "proofDue", order?.proofDue, "date", "required")}
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
@@ -103,8 +104,8 @@
     const form = order ? `<form class="panel" data-form="proof"><h2>注文 ${order.id} の入稿</h2><div class="grid">
       ${field("原稿ファイル名", "file", "", "text", "required maxlength=150")}
       </div><div class="actions"><button>入稿を記録</button></div></form>` : "";
-    return form + table(["注文", "注文者", "商品", "部数", "状態", "原稿", "確認メモ", "操作"], candidates.map(item => [
-      ...orderCells(item), item.proofFile ? `第${item.revision}版 ・ ${esc(item.proofFile)}` : "未入稿", esc(item.note),
+    return form + table(["注文", "注文者", "商品", "部数", "状態", "入力原稿締め切り", "原稿", "確認メモ", "操作"], candidates.map(item => [
+      ...orderCells(item), esc(item.proofDue), item.proofFile ? `第${item.revision}版 ・ ${esc(item.proofFile)}` : "未入稿", esc(item.note),
       button(item.status === "quoted" ? "入稿" : "再入稿", "choose", item.id) +
       (item.status === "proof" ? button("承認", "approve", item.id) + button("差し戻す", "returnProof", item.id) : "")
     ]));
@@ -170,11 +171,11 @@
       const fields = {
         customer: data.get("customer").trim(), product: data.get("product"), quantity: Number(data.get("quantity")),
         paper: data.get("paper"), double: data.get("sides") === "double", finish: data.get("finish"),
-        rush: data.get("speed") === "rush", due: data.get("due"), delivery: data.get("delivery"), address: data.get("address").trim(),
+        rush: data.get("speed") === "rush", proofDue: data.get("proofDue"), due: data.get("due"), delivery: data.get("delivery"), address: data.get("address").trim(),
         returnSurplus: data.get("paper") === "brought" && data.get("returnSurplus") === "on"
       };
-      if (!fields.customer || (fields.delivery === "ship" && !fields.address)) {
-        notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
+      if (!fields.customer || !fields.proofDue || (fields.delivery === "ship" && !fields.address)) {
+        notice.textContent = "注文者、入力原稿締め切りと、配送の場合は配送先を入力してください。";
         return;
       }
       if (order?.status === "received") Object.assign(order, fields);

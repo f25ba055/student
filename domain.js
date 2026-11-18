@@ -31,7 +31,7 @@
   function seed() {
     const common = {
       product: "flyer", quantity: 300, paper: "standard", double: false, finish: "none",
-      rush: false, due: "2026-12-04", delivery: "pickup", address: "", note: "",
+      rush: false, proofDue: "2026-11-27", due: "2026-12-04", delivery: "pickup", address: "", note: "",
       proofFile: "", revision: 0, workOwner: "", quoteSnapshot: null, returnSurplus: false
     };
     const orders = [
