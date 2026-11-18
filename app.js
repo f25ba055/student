@@ -103,7 +103,7 @@
         ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
         ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
       ])
-    }${order.paper === "brought" ? "<p>持ち込み用紙の場合も、加工料金・特急料金は通常どおりかかります。</p>" : ""}<p class="summary">合計 ${money(pricing.total)}</p>${
+    }${order.paper === "brought" ? "<p><strong>備考：</strong>本見積は、お客様による用紙のお持ち込みを条件とします。持ち込み用紙の場合も、加工料金・特急料金は通常どおりかかります。</p>" : ""}<p class="summary">合計 ${money(pricing.total)}</p>${
       order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
     }</section>`;
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
