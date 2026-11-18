@@ -60,6 +60,15 @@
     return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
   }
 
+  function orderedByDeadline(orders) {
+    return [...orders].sort((left, right) => {
+      const dueCompare = String(left.due || "9999-12-31").localeCompare(String(right.due || "9999-12-31"));
+      if (dueCompare !== 0) return dueCompare;
+      if (Boolean(left.rush) !== Boolean(right.rush)) return left.rush ? -1 : 1;
+      return left.id - right.id;
+    });
+  }
+
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
@@ -75,8 +84,8 @@
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
       </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
-      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], state.orders.map(item => [
-        ...orderCells(item), esc(item.due),
+      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "区分", "操作"], orderedByDeadline(state.orders).map(item => [
+        ...orderCells(item), esc(item.due), item.rush ? "特急" : "通常",
         (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
       ]));
   }
@@ -92,13 +101,13 @@
     }<p class="summary">合計 ${money(pricing.total)}</p>${
       order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
     }</section>`;
-    return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
-      [...orderCells(item), button("見積を見る", "quote", item.id)]
+    return blocks + table(["注文", "注文者", "商品", "部数", "状態", "納期", "区分", "操作"], orderedByDeadline(state.orders).map(item =>
+      [...orderCells(item), esc(item.due), item.rush ? "特急" : "通常", button("見積を見る", "quote", item.id)]
     ));
   }
 
   function renderProof() {
-    const candidates = state.orders.filter(order => ["quoted", "proof", "returned"].includes(order.status));
+    const candidates = orderedByDeadline(state.orders.filter(order => ["quoted", "proof", "returned"].includes(order.status)));
     const order = candidates.find(item => item.id === selection);
     const form = order ? `<form class="panel" data-form="proof"><h2>注文 ${order.id} の入稿</h2><div class="grid">
       ${field("原稿ファイル名", "file", "", "text", "required maxlength=150")}
@@ -111,7 +120,7 @@
   }
 
   function renderWork() {
-    const candidates = shop.manufacturingOrders(state.orders);
+    const candidates = orderedByDeadline(shop.manufacturingOrders(state.orders));
     candidates.forEach(shop.ensureLots);
     const nextLabel = { waiting: "印刷を開始", ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
     const lotStatus = { waiting: "待機", ready: "製造待ち", printing: "印刷中", finishing: "加工中", paused: "作業中断", inspected: "検品済", delivered: "納品済" };
@@ -134,13 +143,14 @@
       const ownerHistory = lot.ownerHistory?.map(entry => `${esc(entry.stage)} ${esc(entry.action || "担当")}: ${esc(entry.owner)}`).join(" / ") || "履歴なし";
       const ownerInfo = `印刷: ${esc(lot.printOwner) || "未割当"}<br>加工: ${esc(lot.finishingOwner) || "未割当"}<br>履歴: ${ownerHistory}`;
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
-        esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, advance + revert + button("ロットを選択", "choose", item.id)];
+        esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, esc(item.due), item.rush ? "特急" : "通常",
+        advance + revert + button("ロットを選択", "choose", item.id)];
     }));
-    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "担当履歴", "中断記録", "操作"], lotRows);
+    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "担当履歴", "中断記録", "希望納期", "区分", "操作"], lotRows);
   }
 
   function renderDelivery() {
-    const candidates = state.orders.filter(order => ["inspected", "delivered"].includes(order.status));
+    const candidates = orderedByDeadline(state.orders.filter(order => ["inspected", "delivered"].includes(order.status)));
     return table(["注文", "注文者", "商品", "部数", "状態", "納品方法", "持ち込み用紙", "余剰用紙", "希望納期", "配送先", "操作"], candidates.map(item => [
       ...orderCells(item), shop.delivery[item.delivery], item.paper === "brought" ? "あり" : "なし",
       item.paper === "brought" ? (item.returnSurplus ? "返却する" : "返却しない") : "-",
