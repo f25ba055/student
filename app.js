@@ -129,13 +129,46 @@
       ])
     }<p class="summary">合計 ${money(pricing.total)}（${taxLabel}）</p><p>表示金額はすべて${taxLabel}です。${taxLabel === "税抜" ? "消費税は含まれていません。" : "消費税を含みます。"}</p>${
       order.status === "received"
-        ? button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
-        : "<p>確定済みの見積を表示しています。</p>"
+        ? button("内訳をテキストでコピー", "copyQuote", order.id) + button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
+        : button("内訳をテキストでコピー", "copyQuote", order.id) + "<p>確定済みの見積を表示しています。</p>"
     }</section><section class="panel"><h2>確定前の試算履歴</h2>
       <p>試算した時点の条件と金額です。確定済みの見積とは別に保存しているため、確定額には影響しません。</p>${trialHistory(order)}</section>`;
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
       [...orderCells(item), button("見積を見る", "quote", item.id)]
     ));
+  }
+
+  function quoteText(order) {
+    const pricing = order.quoteSnapshot ?? shop.quote(order, state.rates);
+    return [
+      `【お見積り】注文 ${order.id} ${order.customer} 様`,
+      `${shop.products[order.product]?.name} / ${order.quantity}部 / ${order.double ? "両面" : "片面"} / ${shop.paper[order.paper]?.name} / 加工：${shop.finish[order.finish]?.name} / ${order.rush ? "特急" : "通常"}`,
+      "----------------------------",
+      `印刷代：${money(pricing.printing)}`,
+      `用紙代：${money(pricing.paperCost)}`,
+      `加工費：${money(pricing.finishing)}`,
+      `特急料金：${money(pricing.rush)}`,
+      `数量割引：${money(pricing.discount ? -pricing.discount : 0)}`,
+      "----------------------------",
+      `合計：${money(pricing.total)}`,
+      order.quoteSnapshot ? "※確定済みの見積です。" : "※未確定の見積です。確定時に金額が変わる場合があります。"
+    ].join("\n");
+  }
+
+  async function copyQuote(order) {
+    const text = quoteText(order);
+    try {
+      await navigator.clipboard.writeText(text);
+      notice.textContent = `注文 ${order.id} の見積内訳をコピーしました。`;
+    } catch (error) {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.append(area);
+      area.select();
+      const copied = document.execCommand("copy");
+      area.remove();
+      notice.textContent = copied ? `注文 ${order.id} の見積内訳をコピーしました。` : "コピーできませんでした。ブラウザの設定を確認してください。";
+    }
   }
 
   function renderProof() {
@@ -256,6 +289,7 @@
       case "edit":
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
+      case "copyQuote": copyQuote(order); return;
       case "saveTrial":
         if (order.status !== "received") return;
         order.quoteHistory = [...(order.quoteHistory ?? []), {
