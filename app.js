@@ -12,6 +12,8 @@
   let state = load();
   let page = "orders";
   let selection = null;
+  let orderNoFilter = "";
+  let customerFilter = "";
 
   function load() {
     try {
@@ -189,6 +191,16 @@
     nav.querySelector('[aria-current="page"]').focus();
   });
 
+  // 入力欄を作り直さず一覧だけ差し替える（入力中のフォーカスを保つため）
+  view.addEventListener("input", event => {
+    const { name, value } = event.target;
+    if (name === "orderNo") orderNoFilter = value;
+    else if (name === "customerQuery") customerFilter = value;
+    else return;
+    document.querySelector("#orderList").innerHTML = ordersListHtml();
+    document.querySelector("#orderCount").textContent = orderCountText();
+  });
+
   view.addEventListener("submit", event => {
     event.preventDefault();
     const data = new FormData(event.target);
@@ -223,6 +235,7 @@
       const owner = data.get("owner").trim();
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
       order.workOwner = owner;
+      order.machine = data.get("machine");
     }
     if (type === "work" && order) {
       const owner = data.get("owner").trim();
@@ -300,6 +313,13 @@
       case "edit":
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
+      case "saveTrial":
+        if (order.status !== "received") return;
+        order.quoteHistory = [...(order.quoteHistory ?? []), {
+          at: new Date().toISOString(), product: order.product, quantity: order.quantity, double: order.double,
+          paper: order.paper, finish: order.finish, rush: order.rush, pricing: shop.quote(order, state.rates)
+        }];
+        break;
       case "confirmQuote":
         order.quoteSnapshot = shop.quote(order, state.rates);
         order.status = "quoted";
