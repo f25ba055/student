@@ -27,5 +27,6 @@ th, td { padding: 9px 11px; border-bottom: 1px solid #d6e1df; text-align: left; 
 th { background: #dae9e7; white-space: nowrap; }
 td button { white-space: nowrap; }
 #notice { min-height: 2rem; font-weight: 650; color: #094e46; }
+.material-mark { display: inline-block; color: #9a3a00; background: #fff0d4; border: 1px solid #d89a55; border-radius: 3px; padding: 3px 7px; white-space: nowrap; }
 .summary { font-size: 1.3rem; font-weight: 720; }
 .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }

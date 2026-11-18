@@ -35,7 +35,7 @@
 
   function ensureLots(order) {
     if (!Array.isArray(order.lots) || !order.lots.length) {
-      order.lots = [{ id: 1, label: "初回分", quantity: order.quantity, status: lotStatusFromOrder(order), pauseReason: "", resumeAt: "", pauseHistory: [], printOwner: "", finishingOwner: "", ownerHistory: [] }];
+      order.lots = [{ id: 1, label: "初回分", quantity: order.quantity, status: lotStatusFromOrder(order), pauseReason: "", resumeAt: "", pauseHistory: [], printOwner: "", finishingOwner: "", ownerHistory: [], materialShortage: false }];
     }
     order.lots.forEach(lot => {
       if (!lot.pauseHistory) lot.pauseHistory = [];
@@ -44,6 +44,7 @@
       if (!("finishingOwner" in lot)) lot.finishingOwner = "";
       if (!("pauseReason" in lot)) lot.pauseReason = "";
       if (!("resumeAt" in lot)) lot.resumeAt = "";
+      if (!("materialShortage" in lot)) lot.materialShortage = false;
     });
     order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
     return order;

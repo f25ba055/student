@@ -132,7 +132,8 @@
       ${select("中断対象ロット", "pauseLot", lotOptions, lotOptions[1] ? "1" : "")}
       ${field("中断理由", "pauseReason", "", "text", "maxlength=200")}
       ${field("再開予定", "resumeAt", "", "datetime-local")}
-      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button><button type="submit" name="pauseLot">作業中断を記録</button><button type="submit" name="resumeLot">作業再開を記録</button></div></form>` : "";
+      <label><input type="checkbox" name="materialShortage">素材不足を印で表示</label>
+      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button><button type="submit" name="pauseLot">作業中断を記録</button><button type="submit" name="resumeLot">作業再開を記録</button><button type="submit" name="materialMark">素材不足印を更新</button></div></form>` : "";
     const lotRows = candidates.flatMap(item => (item.lots || []).map(lot => {
       const advance = nextLabel[lot.status] ? button(nextLabel[lot.status], "advanceLot", `${item.id}:${lot.id}`) : "";
       const revert = lot.status === "inspected" && item.status !== "delivered"
@@ -142,11 +143,12 @@
         : (lot.pauseHistory?.length ? `直近の中断: ${esc(lot.pauseHistory.at(-1).reason)}` : "-");
       const ownerHistory = lot.ownerHistory?.map(entry => `${esc(entry.stage)} ${esc(entry.action || "担当")}: ${esc(entry.owner)}`).join(" / ") || "履歴なし";
       const ownerInfo = `印刷: ${esc(lot.printOwner) || "未割当"}<br>加工: ${esc(lot.finishingOwner) || "未割当"}<br>履歴: ${ownerHistory}`;
+      const materialMark = lot.materialShortage ? '<strong class="material-mark">素材不足</strong>' : "-";
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
-        esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, esc(item.due), item.rush ? "特急" : "通常",
+        esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, esc(item.due), item.rush ? "特急" : "通常", materialMark,
         advance + revert + button("ロットを選択", "choose", item.id)];
     }));
-    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "担当履歴", "中断記録", "希望納期", "区分", "操作"], lotRows);
+    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "担当履歴", "中断記録", "希望納期", "区分", "素材不足", "操作"], lotRows);
   }
 
   function renderDelivery() {
@@ -260,6 +262,9 @@
         lot.pauseReason = reason;
         lot.resumeAt = resumeAt;
         lot.pauseStartedAt = new Date().toISOString();
+      }
+      if (event.submitter?.name === "materialMark" && lot) {
+        lot.materialShortage = data.get("materialShortage") === "on";
       }
       if (event.submitter?.name === "resumeLot" && lot) {
         if (lot.status !== "paused") { notice.textContent = "中断中のロットを選択してください。"; return; }
