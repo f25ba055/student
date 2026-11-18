@@ -60,6 +60,17 @@
     return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
   }
 
+  function addressHistoryCell(order) {
+    const history = order.addressHistory ?? [];
+    const entries = history.map(entry =>
+      `<li><time datetime="${esc(entry.changedAt)}">${esc(new Date(entry.changedAt).toLocaleString("ja-JP"))}</time>：${esc(entry.address)}</li>`
+    ).join("");
+    return `<details><summary>配送先を確認（変更履歴 ${history.length} 件）</summary>
+      <p>現在：${esc(order.address) || "未設定"}</p>
+      ${history.length ? `<ol>${entries}</ol>` : "<p>変更履歴はありません。</p>"}
+    </details>`;
+  }
+
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
@@ -74,8 +85,8 @@
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
       </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
-      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], state.orders.map(item => [
-        ...orderCells(item), esc(item.due),
+      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "配送先・変更履歴", "操作"], state.orders.map(item => [
+        ...orderCells(item), esc(item.due), addressHistoryCell(item),
         (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
       ]));
   }
@@ -173,8 +184,13 @@
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
         return;
       }
-      if (order?.status === "received") Object.assign(order, fields);
-      else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null });
+      if (order?.status === "received") {
+        order.addressHistory ??= [];
+        if (order.address && order.address !== fields.address) {
+          order.addressHistory.push({ address: order.address, changedAt: new Date().toISOString() });
+        }
+        Object.assign(order, fields);
+      } else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null, addressHistory: [] });
     }
     if (type === "proof" && order) {
       const file = data.get("file").trim();
