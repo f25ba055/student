@@ -73,11 +73,33 @@
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
-      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
+      </div><p id="estimate" class="summary" aria-live="polite"></p><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
       + table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], state.orders.map(item => [
         ...orderCells(item), esc(item.due),
         (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
       ]));
+  }
+
+  function formOrder(form) {
+    const data = new FormData(form);
+    return {
+      product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
+      double: data.get("sides") === "double", finish: data.get("finish"), rush: data.get("speed") === "rush"
+    };
+  }
+
+  function showEstimate() {
+    const form = view.querySelector('[data-form="order"]');
+    const output = view.querySelector("#estimate");
+    if (!form || !output) return;
+    const draft = formOrder(form);
+    if (!Number.isInteger(draft.quantity) || draft.quantity < 1) {
+      output.textContent = "部数を入力すると概算を表示します。";
+      return;
+    }
+    const single = shop.quote({ ...draft, double: false }, state.rates).total;
+    const double = shop.quote({ ...draft, double: true }, state.rates).total;
+    output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
   }
 
   function conditionText(item) {
@@ -164,6 +186,7 @@
       `<button type="button" data-page="${key}" ${key === page ? 'aria-current="page"' : ""}>${name}</button>`
     ).join("");
     view.innerHTML = `<h1>${views[page]}</h1>` + renderers[page]();
+    if (page === "orders") showEstimate();
   }
 
   nav.addEventListener("click", event => {
@@ -174,6 +197,10 @@
     notice.textContent = "";
     render();
     nav.querySelector('[aria-current="page"]').focus();
+  });
+
+  view.addEventListener("input", event => {
+    if (event.target.closest('[data-form="order"]')) showEstimate();
   });
 
   view.addEventListener("submit", event => {
