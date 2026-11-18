@@ -15,6 +15,9 @@
   const delivery = { pickup: "店頭受取", ship: "配送" };
   const customerTypes = { corporate: "法人", individual: "個人" };
   const channels = { phone: "電話", counter: "店頭", email: "メール" };
+  const sizes = { A4: "A4", A5: "A5" }; // 仕上がりサイズ（料金差は未定のため、注文への記録のみ）
+  const defaultQuoteValidDays = 14;     // 見積の有効期限：確定日からの日数の既定値
+  const defaultProofFees = () => Object.fromEntries(Object.keys(products).map(key => [key, 0])); // 校正料金は単価未定のため0円
   const machines = {
     poster: { name: "ポスター用断裁機" },
     card: { name: "カード用断裁機" },
@@ -25,14 +28,19 @@
     return product === "poster" ? "poster" : product === "card" ? "card" : "general";
   }
 
-  function quote(order, rates) {
-    const printing = Number(rates[order.product]) * order.quantity * (order.double ? 2 : 1);
+  // proofFees：商品ごとの校正料金（校正見本ありの注文だけに加算する別項目）
+  // unit / quantity / sides は内訳表示用（片面単価が基準。両面は印刷代が単価×部数×2になる）
+  function quote(order, rates, proofFees = {}) {
+    const unit = Number(rates[order.product]);
+    const sides = order.double ? 2 : 1;
+    const printing = unit * order.quantity * sides;
     const finishing = finish[order.finish].fee;
     const rush = order.rush ? 1000 : 0;
     const paperCost = paper[order.paper].unit * order.quantity;
+    const proofFee = order.proofRequired ? Number(proofFees[order.product] ?? 0) : 0;
     const discount = order.quantity >= 1000 ? Math.floor(printing * (order.double ? 0.2 : 0.1)) : 0;
-    const subtotal = printing + paperCost + finishing + rush;
-    return { printing, paperCost, finishing, rush, discount, total: subtotal - discount };
+    const subtotal = printing + paperCost + finishing + rush + proofFee;
+    return { printing, paperCost, finishing, rush, proofFee, discount, total: subtotal - discount, unit, quantity: order.quantity, sides };
   }
 
   // 電話番号：全角数字・全角ハイフン類・全角括弧を半角にそろえる
@@ -80,7 +88,8 @@
       rush: false, due: "2026-12-04", delivery: "pickup", address: "", note: "",
       proofFile: "", revision: 0, workOwner: "", machine: "general", quoteSnapshot: null,
       customerType: "corporate", recipient: "", building: "", phone: "",
-      channel: "counter", group: "", tentative: false, remarks: ""
+      channel: "counter", group: "", tentative: false, remarks: "",
+      size: "A4", proofRequired: false
     };
     const orders = [
       { id: 101, customer: "駅前書店", status: "received" },
@@ -94,10 +103,10 @@
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates);
     }
-    return { orders, rates, nextId: 107 };
+    return { orders, rates, nextId: 107, proofFees: defaultProofFees(), quoteValidDays: defaultQuoteValidDays };
   }
 
-  const api = { status, products, paper, finish, delivery, customerTypes, channels, machines, machineForProduct, quote, normalizePhone, isValidPhone, manufacturingOrders, seed };
+  const api = { status, products, paper, finish, delivery, customerTypes, channels, sizes, defaultQuoteValidDays, defaultProofFees, machines, machineForProduct, quote, normalizePhone, isValidPhone, manufacturingOrders, seed };
   globalThis.PrintShop = api;
   if (typeof module !== "undefined") module.exports = api;
 })();
