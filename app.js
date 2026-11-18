@@ -14,7 +14,9 @@
   let selection = null;
   let orderNoFilter = "";
   let customerFilter = "";
-  let draft = null;    // 過去注文の仕様を引き継いだ新規受付（#4）
+  let statusFilter = "";
+  let groupFilter = "";
+  let draft = null;   // 過去注文の仕様を引き継いだ新規受付（#4）
   let estimate = null; // 注文を登録しない概算の結果（#5）
 
   function load() {
@@ -54,6 +56,27 @@
     return `<label class="ship-only" ${visible ? "" : "hidden"}>${label}<input name="${name}" type="text" value="${esc(value)}" ${attributes}></label>`;
   }
 
+  function textarea(label, name, value, attributes = "") {
+    return `<label class="wide">${label}<textarea name="${name}" ${attributes}>${esc(value)}</textarea></label>`;
+  }
+
+  // 名前・番号の照合用：全角/半角・全角スペース/半角スペース・大小の違いを無視する
+  function normalizeName(value) {
+    return String(value ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+  }
+
+  function dueText(order) {
+    return order.due || "未定（仮受付）";
+  }
+
+  // 同じ注文者の、この注文より前に登録された注文のうち直近のものの納期
+  function previousDue(order) {
+    const key = normalizeName(order.customer);
+    const prev = state.orders.filter(item => item.id < order.id && normalizeName(item.customer) === key)
+      .sort((a, b) => b.id - a.id)[0];
+    return prev ? `${esc(dueText(prev))}（注文 ${prev.id}）` : "-";
+  }
+
   function customerTypeLabel(order) {
     return shop.customerTypes[order.customerType] ?? "未設定";
   }
@@ -84,38 +107,42 @@
       .replace(/[#＃\s]/g, "");
   }
 
-  // 注文者名の検索語を正規化する（前後の空白除去・英字の大小を区別しない）
-  function normalizeCustomerQuery(value) {
-    return String(value ?? "").trim().toLowerCase();
-  }
-
   function filtersActive() {
-    return Boolean(normalizeOrderNo(orderNoFilter) || normalizeCustomerQuery(customerFilter));
+    return Boolean(normalizeOrderNo(orderNoFilter) || normalizeName(customerFilter) || statusFilter || normalizeName(groupFilter));
   }
 
-  // 注文番号は完全一致、注文者名は部分一致。両方入力した場合は両方に一致する注文だけを表示する
+  // 注文番号・状態・相談番号は完全一致、注文者名は部分一致（空白・全半角の違いは無視）。
+  // 複数入力した場合は、すべてに一致する注文だけを表示する
   function filteredOrders() {
     const no = normalizeOrderNo(orderNoFilter);
-    const name = normalizeCustomerQuery(customerFilter);
+    const name = normalizeName(customerFilter);
+    const group = normalizeName(groupFilter);
     return state.orders.filter(item =>
-      (!no || String(item.id) === no) && (!name || item.customer.toLowerCase().includes(name)));
+      (!no || String(item.id) === no) && (!name || normalizeName(item.customer).includes(name)) &&
+      (!statusFilter || item.status === statusFilter) && (!group || normalizeName(item.group) === group));
   }
 
   function ordersListHtml() {
     const rows = filteredOrders();
     const empty = filtersActive() && !rows.length ? "<p>条件に一致する注文はありません。</p>" : "";
-    return empty || table(["注文", "注文者", "区分", "商品", "部数", "状態", "納期", "操作"], rows.map(item => {
+    return empty || table(["注文", "注文者", "区分", "受付経路", "相談番号", "商品", "部数", "状態", "納期", "同じ注文者の前回納期", "備考", "操作"], rows.map(item => {
       const [id, customer, ...rest] = orderCells(item);
       return [
-        id, customer, esc(customerTypeLabel(item)), ...rest, esc(item.due),
+        id, customer, esc(customerTypeLabel(item)), esc(shop.channels[item.channel] ?? "未設定"),
+        item.group ? button(esc(item.group), "filterGroup", item.id) : "-", ...rest, esc(dueText(item)), previousDue(item),
+        item.remarks ? `<span class="memo">${esc(item.remarks)}</span>` : "-",
         (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id) +
           button("複製して受付", "duplicate", item.id)
       ];
     }));
   }
 
+  // 件数と合計部数（絞り込み中は、その結果の合計）
   function orderCountText() {
-    return filtersActive() ? `${filteredOrders().length} 件を表示中（全 ${state.orders.length} 件）` : "";
+    const rows = filteredOrders();
+    const total = rows.reduce((sum, item) => sum + Number(item.quantity), 0);
+    const count = filtersActive() ? `${rows.length} 件を表示中（全 ${state.orders.length} 件）` : `全 ${state.orders.length} 件`;
+    return `${count} ・ 合計 ${new Intl.NumberFormat("ja-JP").format(total)} 部`;
   }
 
   function renderOrders() {
@@ -128,11 +155,20 @@
       Object.entries(shop.customerTypes).map(([key, name]) =>
         `<option value="${key}" ${key === order?.customerType ? "selected" : ""}>${esc(name)}</option>`).join("")
     }</select></label>`;
+    const channelSelect = `<label>受付経路<select name="channel" required><option value="">選択してください</option>${
+      Object.entries(shop.channels).map(([key, name]) =>
+        `<option value="${key}" ${key === order?.channel ? "selected" : ""}>${esc(name)}</option>`).join("")
+    }</select></label>`;
+    const tentative = Boolean(order?.tentative);
+    const statusOptions = `<option value="">すべての状態</option>${Object.entries(shop.status).map(([key, name]) =>
+      `<option value="${key}" ${key === statusFilter ? "selected" : ""}>${esc(name)}</option>`).join("")}`;
     return `<form class="panel" data-form="order"><h2>${title}</h2>${
       draft && !order ? "<p>注文者・区分・希望納期・納品方法は引き継いでいません。内容を確認して入力してください。</p>" : ""
     }<div class="grid">
       ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
       ${customerTypeSelect}
+      ${channelSelect}
+      ${field("相談番号（同じ相談の注文には同じ番号）", "group", order?.group, "text", "maxlength=30")}
       ${field("連絡先（電話番号）", "phone", order?.phone, "tel", 'maxlength=20 inputmode="tel" autocomplete="off" placeholder="例：03-1234-5678"')}
       ${select("商品", "product", shop.products, base?.product)}
       ${field("部数", "quantity", base?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
@@ -141,18 +177,23 @@
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, base?.double ? "double" : "single")}
       ${select("加工", "finish", shop.finish, base?.finish)}
       ${select("納期区分", "speed", { standard: "通常", rush: "特急" }, order?.rush ? "rush" : "standard")}
-      ${field("希望納期", "due", order?.due, "date", "required")}
+      ${field("希望納期", "due", order?.due, "date", tentative ? "disabled" : "required")}
+      <label><input type="checkbox" name="dueTbd" ${tentative ? "checked" : ""}>納期未定（仮受付）</label>
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${shipField("送り先の担当者名", "recipient", order?.recipient, isShip, "maxlength=50")}
       ${shipField("配送先住所（番地まで）", "address", order?.address, isShip, "maxlength=200")}
       ${shipField("建物名・部屋番号", "building", order?.building, isShip, "maxlength=100")}
+      ${textarea("備考（例：午前中は連絡不可）", "remarks", order?.remarks, "maxlength=500")}
       </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}${
         draft && !order ? button("複製をやめる", "clear", draft.from) : ""}</div></form>
       <div class="panel" role="search"><div class="grid">
         <label>注文番号で絞り込み
           <input name="orderNo" type="search" inputmode="numeric" autocomplete="off" placeholder="例：103" value="${esc(orderNoFilter)}"></label>
         <label>注文者名で検索（一部でも可）
-          <input name="customerQuery" type="search" autocomplete="off" placeholder="例：書店" value="${esc(customerFilter)}"></label></div>
+          <input name="customerQuery" type="search" autocomplete="off" placeholder="例：書店" value="${esc(customerFilter)}"></label>
+        <label>状態で絞り込み<select name="statusQuery">${statusOptions}</select></label>
+        <label>相談番号で絞り込み
+          <input name="groupQuery" type="search" autocomplete="off" value="${esc(groupFilter)}"></label></div>
         <p id="orderCount" aria-live="polite">${orderCountText()}</p></div>
       <div id="orderList">${ordersListHtml()}</div>`;
   }
@@ -203,9 +244,10 @@
     const blocks = estimatePanel() + (!order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
       breakdownTable(pricing)
     }<p class="summary">合計 ${money(pricing.total)}</p>${
-      order.status === "received"
-        ? button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
-        : "<p>確定済みの見積を表示しています。</p>"
+      order.status !== "received" ? "<p>確定済みの見積を表示しています。</p>"
+        : order.tentative ? button("試算を履歴に保存", "saveTrial", order.id) +
+          "<p>希望納期が未定（仮受付）のため、見積はまだ確定できません。注文を編集して納期を確定してください。</p>"
+        : button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
     }</section><section class="panel"><h2>確定前の試算履歴</h2>
       <p>試算した時点の条件と金額です。確定済みの見積とは別に保存しているため、確定額には影響しません。</p>${trialHistory(order)}</section>`);
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
@@ -253,10 +295,11 @@
 
   function renderDelivery() {
     const candidates = state.orders.filter(order => ["inspected", "delivered"].includes(order.status));
-    return table(["注文", "注文者", "商品", "部数", "状態", "納品方法", "持ち込み用紙", "余剰用紙", "希望納期", "送り先の担当者", "配送先", "連絡先", "操作"], candidates.map(item => [
+    return table(["注文", "注文者", "商品", "部数", "状態", "納品方法", "持ち込み用紙", "余剰用紙", "希望納期", "送り先の担当者", "配送先", "連絡先", "備考", "操作"], candidates.map(item => [
       ...orderCells(item), shop.delivery[item.delivery], item.paper === "brought" ? "あり" : "なし",
       item.paper === "brought" ? (item.returnSurplus ? "返却する" : "返却しない") : "-",
-      esc(item.due), esc(item.recipient), esc(fullAddress(item)), esc(item.phone),
+      esc(dueText(item)), esc(item.recipient), esc(fullAddress(item)), esc(item.phone),
+      item.remarks ? `<span class="memo">${esc(item.remarks)}</span>` : "-",
       item.status === "inspected" ? button("納品完了", "deliver", item.id) : ""
     ]));
   }
@@ -296,6 +339,8 @@
     const { name, value } = event.target;
     if (name === "orderNo") orderNoFilter = value;
     else if (name === "customerQuery") customerFilter = value;
+    else if (name === "statusQuery") statusFilter = value;
+    else if (name === "groupQuery") groupFilter = value;
     else return;
     document.querySelector("#orderList").innerHTML = ordersListHtml();
     document.querySelector("#orderCount").textContent = orderCountText();
@@ -303,6 +348,14 @@
 
   // 納品方法が「配送」のときだけ、送り先・住所の入力欄を表示する
   view.addEventListener("change", event => {
+    if (event.target.name === "dueTbd") {
+      // 納期未定（仮受付）のときは希望納期を入力不要にする
+      const due = event.target.form.querySelector('[name="due"]');
+      due.disabled = event.target.checked;
+      due.required = !event.target.checked;
+      if (event.target.checked) due.value = "";
+      return;
+    }
     if (event.target.name !== "delivery") return;
     const ship = event.target.value === "ship";
     view.querySelectorAll(".ship-only").forEach(label => { label.hidden = !ship; });
@@ -313,6 +366,7 @@
     const data = new FormData(event.target);
     const type = event.target.dataset.form;
     const order = state.orders.find(item => item.id === selection);
+    let message = "保存しました。";
     if (type === "estimate") {
       const input = {
         product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
@@ -331,17 +385,21 @@
     }
     if (type === "order") {
       const ship = data.get("delivery") === "ship";
+      const tentative = data.get("dueTbd") === "on";
       const fields = {
         customer: data.get("customer").trim(), customerType: data.get("customerType"), phone: shop.normalizePhone(data.get("phone")),
+        channel: data.get("channel"), group: data.get("group").trim(), remarks: data.get("remarks").trim(),
         product: data.get("product"), quantity: Number(data.get("quantity")),
         paper: data.get("paper"), double: data.get("sides") === "double", finish: data.get("finish"),
-        rush: data.get("speed") === "rush", due: data.get("due"), delivery: data.get("delivery"),
+        rush: data.get("speed") === "rush", tentative, due: tentative ? "" : (data.get("due") ?? ""), delivery: data.get("delivery"),
         recipient: ship ? data.get("recipient").trim() : "", address: ship ? data.get("address").trim() : "",
         building: ship ? data.get("building").trim() : "",
         returnSurplus: data.get("paper") === "brought" && data.get("returnSurplus") === "on"
       };
       const problem = !fields.customer ? "注文者を入力してください。"
         : !(fields.customerType in shop.customerTypes) ? "注文者区分（法人／個人）を選択してください。"
+        : !(fields.channel in shop.channels) ? "受付経路（電話・店頭・メール）を選択してください。"
+        : !fields.tentative && !fields.due ? "希望納期を入力するか、「納期未定（仮受付）」にチェックしてください。"
         : ship && !fields.address ? "配送の場合は配送先住所（番地まで）を入力してください。"
         : !shop.isValidPhone(fields.phone) ? "電話番号は数字10〜11桁（ハイフン可）で入力してください。" : "";
       if (problem) {
@@ -349,9 +407,15 @@
         return;
       }
       draft = null;
-      orderNoFilter = customerFilter = ""; // 保存した注文が絞り込みで隠れないようにする
-      if (order?.status === "received") Object.assign(order, fields);
-      else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null, quoteHistory: [] });
+      orderNoFilter = customerFilter = statusFilter = groupFilter = ""; // 保存した注文が絞り込みで隠れないようにする
+      if (order?.status === "received") {
+        Object.assign(order, fields);
+        message = `注文 ${order.id} を更新しました。${fields.tentative ? "（納期未定の仮受付）" : ""}`;
+      } else {
+        const id = state.nextId++;
+        state.orders.push({ ...fields, id, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null, quoteHistory: [] });
+        message = `注文を登録しました。注文番号は ${id} です。${fields.tentative ? "（納期未定の仮受付）" : ""}`;
+      }
     }
     if (type === "proof" && order) {
       const file = data.get("file").trim();
@@ -407,7 +471,7 @@
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
     }
     selection = null;
-    update("保存しました。");
+    update(message);
   });
 
   view.addEventListener("click", event => {
@@ -440,7 +504,19 @@
           paper: order.paper, finish: order.finish, rush: order.rush, pricing: shop.quote(order, state.rates)
         }];
         break;
+      case "filterGroup": {
+        // 同じ相談番号の注文をまとめて表示する
+        groupFilter = order.group; orderNoFilter = customerFilter = statusFilter = "";
+        page = "orders"; selection = null;
+        render();
+        notice.textContent = `相談番号「${order.group}」の注文を表示しています。`;
+        return;
+      }
       case "confirmQuote":
+        if (order.tentative || !order.due) {
+          notice.textContent = "希望納期が未定（仮受付）のため、見積を確定できません。注文を編集して納期を確定してください。";
+          return;
+        }
         order.quoteSnapshot = shop.quote(order, state.rates);
         order.status = "quoted";
         break;

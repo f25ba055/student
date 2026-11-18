@@ -14,6 +14,7 @@
   const finish = { none: { name: "なし", fee: 0 }, fold: { name: "折り加工", fee: 500 }, laminate: { name: "ラミネート", fee: 1000 } };
   const delivery = { pickup: "店頭受取", ship: "配送" };
   const customerTypes = { corporate: "法人", individual: "個人" };
+  const channels = { phone: "電話", counter: "店頭", email: "メール" };
   const machines = {
     poster: { name: "ポスター用断裁機" },
     card: { name: "カード用断裁機" },
@@ -78,7 +79,8 @@
       product: "flyer", quantity: 300, paper: "standard", double: false, finish: "none",
       rush: false, due: "2026-12-04", delivery: "pickup", address: "", note: "",
       proofFile: "", revision: 0, workOwner: "", machine: "general", quoteSnapshot: null,
-      customerType: "corporate", recipient: "", building: "", phone: ""
+      customerType: "corporate", recipient: "", building: "", phone: "",
+      channel: "counter", group: "", tentative: false, remarks: ""
     };
     const orders = [
       { id: 101, customer: "駅前書店", status: "received" },
@@ -95,7 +97,7 @@
     return { orders, rates, nextId: 107 };
   }
 
-  const api = { status, products, paper, finish, delivery, customerTypes, machines, machineForProduct, quote, normalizePhone, isValidPhone, manufacturingOrders, seed };
+  const api = { status, products, paper, finish, delivery, customerTypes, channels, machines, machineForProduct, quote, normalizePhone, isValidPhone, manufacturingOrders, seed };
   globalThis.PrintShop = api;
   if (typeof module !== "undefined") module.exports = api;
 })();

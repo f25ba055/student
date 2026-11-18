@@ -30,3 +30,7 @@ td button { white-space: nowrap; }
 #notice { min-height: 2rem; font-weight: 650; color: #094e46; }
 .summary { font-size: 1.3rem; font-weight: 720; }
 .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+label.wide { grid-column: 1 / -1; }
+textarea { width: 100%; min-height: 76px; padding: 5px 9px; font: inherit; border: 1px solid #72908f; border-radius: 3px; resize: vertical; }
+textarea:focus-visible { outline: 3px solid #a84800; outline-offset: 2px; }
+.memo { white-space: pre-wrap; }
