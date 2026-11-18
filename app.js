@@ -80,6 +80,21 @@
       ]));
   }
 
+  function conditionText(item) {
+    return [
+      shop.products[item.product]?.name, item.quantity + "部", item.double ? "両面" : "片面",
+      shop.paper[item.paper]?.name, shop.finish[item.finish]?.name, item.rush ? "特急" : "通常"
+    ].join(" / ");
+  }
+
+  function trialHistory(order) {
+    const trials = order.quoteHistory ?? [];
+    if (!trials.length) return "<p>保存した試算はありません。</p>";
+    return table(["試算日時", "区分", "条件", "合計"], trials.slice().reverse().map(trial => [
+      esc(new Date(trial.at).toLocaleString("ja-JP")), "試算（未確定）", esc(conditionText(trial)), money(trial.pricing.total)
+    ]));
+  }
+
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
     const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
@@ -89,8 +104,11 @@
         ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
       ])
     }<p class="summary">合計 ${money(pricing.total)}</p>${
-      order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
-    }</section>`;
+      order.status === "received"
+        ? button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
+        : "<p>確定済みの見積を表示しています。</p>"
+    }</section><section class="panel"><h2>確定前の試算履歴</h2>
+      <p>試算した時点の条件と金額です。確定済みの見積とは別に保存しているため、確定額には影響しません。</p>${trialHistory(order)}</section>`;
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
       [...orderCells(item), button("見積を見る", "quote", item.id)]
     ));
@@ -174,7 +192,7 @@
         return;
       }
       if (order?.status === "received") Object.assign(order, fields);
-      else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null });
+      else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null, quoteHistory: [] });
     }
     if (type === "proof" && order) {
       const file = data.get("file").trim();
@@ -204,6 +222,13 @@
       case "edit":
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
+      case "saveTrial":
+        if (order.status !== "received") return;
+        order.quoteHistory = [...(order.quoteHistory ?? []), {
+          at: new Date().toISOString(), product: order.product, quantity: order.quantity, double: order.double,
+          paper: order.paper, finish: order.finish, rush: order.rush, pricing: shop.quote(order, state.rates)
+        }];
+        break;
       case "confirmQuote":
         order.quoteSnapshot = shop.quote(order, state.rates);
         order.status = "quoted";
