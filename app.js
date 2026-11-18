@@ -77,7 +77,10 @@
       ${select("加工", "finish", shop.finish, order?.finish)}
       ${select("納期区分", "speed", { standard: "通常", rush: "特急" }, order?.rush ? "rush" : "standard")}
       <label>キャンペーン注文<input name="campaign" type="checkbox" ${order?.campaign ? "checked" : ""}></label>
-      ${select("キャンペーン特急料金", "campaignRush", { apply: "特急料金を付ける", waive: "特急料金を外す" }, order?.waiveRush ? "waive" : "apply")}
+      <label>キャンペーン特急料金<select name="campaignRush" ${order?.campaign ? "" : "disabled"}>
+        <option value="apply" ${order?.waiveRush ? "" : "selected"}>特急料金を付ける</option>
+        <option value="waive" ${order?.waiveRush ? "selected" : ""}>特急料金を外す</option>
+      </select></label>
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
@@ -96,6 +99,9 @@
       : pricing.discount === 0
         ? "数量割引の対象ですが、割引計算の結果が0円です。"
         : "";
+    const rushReason = order?.campaign && order.rush && order.waiveRush
+      ? "キャンペーン適用により特急料金を適用しません。"
+      : "";
     const blocks = !order ? "" : `<section class="panel quote-document"><div class="quote-heading"><div><h2>見積書</h2><p class="quote-order-number">注文番号：<strong>${order.id}</strong></p></div><p>注文者：${esc(order.customer)}</p></div>${
       `<label class="zero-items-toggle"><input type="checkbox" data-setting="showZeroItems" ${showZeroItems ? "checked" : ""}>0円の項目を表示</label>` +
       table(["項目", "金額"], [
@@ -103,7 +109,7 @@
         ["加工費", pricing.finishing], ["特急料金", pricing.rush],
         ["数量割引", pricing.discount ? -pricing.discount : 0]
       ].filter(([, amount]) => showZeroItems || amount !== 0).map(([label, amount]) => [label, money(amount)]))
-    }<p class="discount-note">${esc(discountReason)}</p><p class="summary">合計 ${money(pricing.total)}</p>${
+    }<p class="discount-note">${esc(discountReason)}</p><p class="campaign-note">${esc(rushReason)}</p><p class="summary">合計 ${money(pricing.total)}</p>${
       order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
     }<div class="actions quote-actions">${button("見積書を印刷", "printQuote", order.id)}</div></section>`;
     return blocks + `<div class="quote-list">` + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
@@ -280,6 +286,12 @@
 
   view.addEventListener("input", event => {
     if (event.target.id === "bulk-rates") bulkRateText = event.target.value;
+  });
+
+  view.addEventListener("change", event => {
+    if (event.target.name !== "campaign") return;
+    const campaignRush = event.target.form?.elements.namedItem("campaignRush");
+    if (campaignRush) campaignRush.disabled = !event.target.checked;
   });
 
   view.addEventListener("click", event => {
