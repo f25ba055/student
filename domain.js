@@ -13,6 +13,15 @@
   const paper = { standard: { name: "標準紙", unit: 2 }, coated: { name: "光沢紙", unit: 4 }, heavy: { name: "厚紙", unit: 6 }, brought: { name: "持ち込み用紙", unit: 0 } };
   const finish = { none: { name: "なし", fee: 0 }, fold: { name: "折り加工", fee: 500 }, laminate: { name: "ラミネート", fee: 1000 } };
   const delivery = { pickup: "店頭受取", ship: "配送" };
+  const machines = {
+    poster: { name: "ポスター用断裁機" },
+    card: { name: "カード用断裁機" },
+    general: { name: "汎用断裁機" }
+  };
+
+  function machineForProduct(product) {
+    return product === "poster" ? "poster" : product === "card" ? "card" : "general";
+  }
 
   function quote(order, rates) {
     const printing = Number(rates[order.product]) * order.quantity * (order.double ? 2 : 1);
@@ -32,7 +41,7 @@
     const common = {
       product: "flyer", quantity: 300, paper: "standard", double: false, finish: "none",
       rush: false, due: "2026-12-04", delivery: "pickup", address: "", note: "",
-      proofFile: "", revision: 0, workOwner: "", quoteSnapshot: null, returnSurplus: false
+      proofFile: "", revision: 0, workOwner: "", machine: "general", quoteSnapshot: null
     };
     const orders = [
       { id: 101, customer: "駅前書店", status: "received" },
@@ -41,7 +50,11 @@
       { id: 104, customer: "青葉商店会", status: "received", quantity: 1000, double: true },
       { id: 105, customer: "北通りカフェ", status: "ready", product: "card", proofFile: "cafe-v1.pdf", revision: 1 },
       { id: 106, customer: "まちなか図書室", status: "inspected", product: "poster", quantity: 12, delivery: "ship", address: "中央通り2-8", proofFile: "library-v1.pdf", revision: 1 }
-    ].map(order => ({ ...common, ...order }));
+    ].map(order => {
+      const seeded = { ...common, ...order };
+      seeded.machine = machineForProduct(seeded.product);
+      return seeded;
+    });
     const rates = Object.fromEntries(Object.entries(products).map(([key, value]) => [key, value.unit]));
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates);
@@ -49,7 +62,7 @@
     return { orders, rates, nextId: 107 };
   }
 
-  const api = { status, products, paper, finish, delivery, quote, manufacturingOrders, seed };
+  const api = { status, products, paper, finish, delivery, machines, machineForProduct, quote, manufacturingOrders, seed };
   globalThis.PrintShop = api;
   if (typeof module !== "undefined") module.exports = api;
 })();

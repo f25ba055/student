@@ -114,11 +114,14 @@
     const candidates = shop.manufacturingOrders(state.orders);
     const nextLabel = { ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
     const order = candidates.find(item => item.id === selection);
-    const form = order ? `<form class="panel" data-form="owner"><h2>注文 ${order.id} の製造担当</h2><div class="grid">
-      ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}</div>
-      <div class="actions"><button>担当を保存</button></div></form>` : "";
-    return form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "操作"], candidates.map(item => [
-      ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当", button("担当を設定", "choose", item.id) +
+    const form = order ? `<form class="panel" data-form="owner"><h2>注文 ${order.id} の製造担当・機種</h2><div class="grid">
+      ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}
+      ${select("断裁機", "machine", shop.machines, order.machine || shop.machineForProduct(order.product))}</div>
+      <div class="actions"><button>担当と機種を保存</button></div></form>` : "";
+    return form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "断裁機", "操作"], candidates.map(item => [
+      ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当",
+      esc(shop.machines[item.machine || shop.machineForProduct(item.product)]?.name || "未割当"),
+      button("担当・機種を設定", "choose", item.id) +
       (nextLabel[item.status] ? button(nextLabel[item.status], "advance", item.id) : "")
     ]));
   }
@@ -177,6 +180,7 @@
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
         return;
       }
+      fields.machine = shop.machineForProduct(fields.product);
       if (order?.status === "received") Object.assign(order, fields);
       else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null });
     }
@@ -189,6 +193,7 @@
       const owner = data.get("owner").trim();
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
       order.workOwner = owner;
+      order.machine = data.get("machine");
     }
     if (type === "rates") {
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
