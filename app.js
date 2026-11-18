@@ -191,7 +191,7 @@
       const pauseInfo = lot.status === "paused"
         ? `理由: ${esc(lot.pauseReason) || "未記入"}<br>再開予定: ${esc(lot.resumeAt) || "未設定"}`
         : (lot.pauseHistory?.length ? `直近の中断: ${esc(lot.pauseHistory.at(-1).reason)}` : "-");
-      const ownerHistory = lot.ownerHistory?.map(entry => `${esc(entry.stage)}: ${esc(entry.owner)}`).join(" / ") || "履歴なし";
+      const ownerHistory = lot.ownerHistory?.map(entry => `${esc(entry.stage)} ${esc(entry.action || "担当")}: ${esc(entry.owner)}`).join(" / ") || "履歴なし";
       const ownerInfo = `印刷: ${esc(lot.printOwner) || "未割当"}<br>加工: ${esc(lot.finishingOwner) || "未割当"}<br>履歴: ${ownerHistory}`;
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
         esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, advance + revert + button("ロットを選択", "choose", item.id)];
@@ -290,12 +290,15 @@
       order.workOwner = owner;
       if (previousOwner !== owner) {
         for (const lot of order.lots || []) {
+          const recordedAt = new Date().toISOString();
           if (lot.status === "printing") {
+            if (previousOwner) lot.ownerHistory.push({ stage: "印刷", action: "引継ぎ前", owner: previousOwner, recordedAt });
             lot.printOwner = owner;
-            lot.ownerHistory.push({ stage: "印刷", owner, recordedAt: new Date().toISOString() });
+            lot.ownerHistory.push({ stage: "印刷", action: "引継ぎ先", owner, recordedAt });
           } else if (lot.status === "finishing" || lot.statusBeforePause === "finishing") {
+            if (previousOwner) lot.ownerHistory.push({ stage: "加工", action: "引継ぎ前", owner: previousOwner, recordedAt });
             lot.finishingOwner = owner;
-            lot.ownerHistory.push({ stage: "加工", owner, recordedAt: new Date().toISOString() });
+            lot.ownerHistory.push({ stage: "加工", action: "引継ぎ先", owner, recordedAt });
           }
         }
       }
