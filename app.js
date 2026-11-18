@@ -13,6 +13,9 @@
   let page = "orders";
   let selection = null;
   let showZeroItems = state.showZeroItems === true;
+  const roleSelect = document.querySelector("#role");
+  let currentRole = ["staff", "pricing", "admin"].includes(state.currentRole) ? state.currentRole : "staff";
+  const canChangeRates = () => currentRole === "pricing" || currentRole === "admin";
 
   function load() {
     try {
@@ -134,8 +137,14 @@
   }
 
   function renderRates() {
+    if (!canChangeRates()) {
+      return `<section class="panel"><h2>商品別の印刷単価</h2><p>この画面は料金担当または管理者だけが変更できます。</p><p>料金設定に関する相談先：<strong>経理部</strong></p></section>`
+        + table(["用紙", "1部あたり"], Object.values(shop.paper).map(item => [esc(item.name), money(item.unit)]))
+        + table(["加工", "1注文あたり"], Object.values(shop.finish).map(item => [esc(item.name), money(item.fee)]));
+    }
     return `<form class="panel" data-form="rates"><h2>商品別の印刷単価</h2>
       <p>片面1部あたりの単価です。確定済みの見積には確定時点の金額を表示します。</p>
+      <p>料金設定に関する相談先：<strong>経理部</strong></p>
       <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
         field(product.name + "（円）", key, state.rates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <div class="actions"><button>単価を保存</button></div></form>`
@@ -145,9 +154,12 @@
 
   const renderers = { orders: renderOrders, quotes: renderQuotes, proof: renderProof, work: renderWork, delivery: renderDelivery, rates: renderRates };
   function render() {
-    nav.innerHTML = Object.entries(views).map(([key, name]) =>
-      `<button type="button" data-page="${key}" ${key === page ? 'aria-current="page"' : ""}>${name}</button>`
-    ).join("");
+    if (page === "rates" && !canChangeRates()) page = "orders";
+    nav.innerHTML = Object.entries(views)
+      .filter(([key]) => key !== "rates" || canChangeRates())
+      .map(([key, name]) =>
+        `<button type="button" data-page="${key}" ${key === page ? 'aria-current="page"' : ""}>${name}</button>`
+      ).join("");
     view.innerHTML = `<h1>${views[page]}</h1>` + renderers[page]();
   }
 
@@ -190,6 +202,10 @@
       order.workOwner = owner;
     }
     if (type === "rates") {
+      if (!canChangeRates()) {
+        notice.textContent = "料金担当または管理者だけが単価を変更できます。";
+        return;
+      }
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
     }
     selection = null;
@@ -239,10 +255,19 @@
   document.querySelector("#reset").addEventListener("click", () => {
     if (!window.confirm("このブラウザの注文と料金をサンプルに戻しますか？")) return;
     state = shop.seed();
+    state.currentRole = currentRole;
     showZeroItems = false;
     state.showZeroItems = false;
     selection = null;
     update("サンプルに戻しました。");
+  });
+
+  roleSelect.value = currentRole;
+  roleSelect.addEventListener("change", () => {
+    currentRole = roleSelect.value;
+    state.currentRole = currentRole;
+    selection = null;
+    update("操作ロールを変更しました。");
   });
 
   render();
