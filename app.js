@@ -9,6 +9,8 @@
   const notice = document.querySelector("#notice");
   const money = value => new Intl.NumberFormat("ja-JP").format(value) + " 円";
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+  const minimumQuantities = { "カード": 50 };
+  const minimumQuantity = productKey => minimumQuantities[shop.products[productKey]?.name] ?? 1;
   let state = load();
   let page = "orders";
   let selection = null;
@@ -76,7 +78,7 @@
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
       ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
       ${select("商品", "product", shop.products, order?.product)}
-      ${field("部数", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
+      ${field("部数（カードは50部以上）", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
       ${select("用紙", "paper", shop.paper, order?.paper)}
       <label><input type="checkbox" name="returnSurplus" ${order?.returnSurplus ? "checked" : ""}>余剰を納品時に返却する</label>
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
@@ -96,7 +98,7 @@
     const order = state.orders.find(item => item.id === selection);
     const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
     const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
-      table(["項目", "金額"], [
+      table(["項目", `金額（${taxLabel}）`], [
         ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
         ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
       ])
@@ -106,6 +108,39 @@
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "納期", "区分", "操作"], orderedByDeadline(state.orders).map(item =>
       [...orderCells(item), esc(item.due), item.rush ? "特急" : "通常", button("見積を見る", "quote", item.id)]
     ));
+  }
+
+  function quoteText(order) {
+    const pricing = order.quoteSnapshot ?? shop.quote(order, state.rates);
+    return [
+      `【お見積り】注文 ${order.id} ${order.customer} 様`,
+      `${shop.products[order.product]?.name} / ${order.quantity}部 / ${order.double ? "両面" : "片面"} / ${shop.paper[order.paper]?.name} / 加工：${shop.finish[order.finish]?.name} / ${order.rush ? "特急" : "通常"}`,
+      "----------------------------",
+      `印刷代：${money(pricing.printing)}`,
+      `用紙代：${money(pricing.paperCost)}`,
+      `加工費：${money(pricing.finishing)}`,
+      `特急料金：${money(pricing.rush)}`,
+      `数量割引：${money(pricing.discount ? -pricing.discount : 0)}`,
+      "----------------------------",
+      `合計：${money(pricing.total)}`,
+      order.quoteSnapshot ? "※確定済みの見積です。" : "※未確定の見積です。確定時に金額が変わる場合があります。"
+    ].join("\n");
+  }
+
+  async function copyQuote(order) {
+    const text = quoteText(order);
+    try {
+      await navigator.clipboard.writeText(text);
+      notice.textContent = `注文 ${order.id} の見積内訳をコピーしました。`;
+    } catch (error) {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.append(area);
+      area.select();
+      const copied = document.execCommand("copy");
+      area.remove();
+      notice.textContent = copied ? `注文 ${order.id} の見積内訳をコピーしました。` : "コピーできませんでした。ブラウザの設定を確認してください。";
+    }
   }
 
   function renderProof() {
@@ -179,6 +214,7 @@
       `<button type="button" data-page="${key}" ${key === page ? 'aria-current="page"' : ""}>${name}</button>`
     ).join("");
     view.innerHTML = `<h1>${views[page]}</h1>` + renderers[page]();
+    if (page === "orders") showEstimate();
   }
 
   nav.addEventListener("click", event => {
@@ -313,6 +349,7 @@
       case "edit":
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
+      case "copyQuote": copyQuote(order); return;
       case "saveTrial":
         if (order.status !== "received") return;
         order.quoteHistory = [...(order.quoteHistory ?? []), {
