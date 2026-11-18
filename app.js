@@ -61,13 +61,24 @@
     return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
   }
 
+  function updatePaperCostPreview() {
+    const preview = view.querySelector("[data-paper-cost-preview]");
+    if (!preview) return;
+    const paper = view.querySelector('[name="paper"]').value;
+    const quantity = Number(view.querySelector('[name="quantity"]').value);
+    preview.textContent = money(shop.paper[paper].unit * (Number.isFinite(quantity) ? quantity : 0));
+  }
+
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
+    const paper = order?.paper ?? Object.keys(shop.paper)[0];
+    const quantity = order?.quantity ?? 100;
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
       ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
       ${select("商品", "product", shop.products, order?.product)}
-      ${field("部数", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
+      ${field("部数", "quantity", quantity, "number", "required min=1 max=100000 step=1")}
       ${select("用紙", "paper", shop.paper, order?.paper)}
+      <p>用紙代（見積）: <output data-paper-cost-preview aria-live="polite">${money(shop.paper[paper].unit * quantity)}</output></p>
       <label><input type="checkbox" name="returnSurplus" ${order?.returnSurplus ? "checked" : ""}>余剰を納品時に返却する</label>
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
       ${select("加工", "finish", shop.finish, order?.finish)}
@@ -174,6 +185,10 @@
   });
 
   view.addEventListener("change", event => {
+    if (event.target.name === "paper") {
+      updatePaperCostPreview();
+      return;
+    }
     if (event.target.id === "work-paper-filter") {
       broughtOnly = event.target.value === "brought";
       render();
@@ -186,6 +201,10 @@
     order.broughtPaperReceived = event.target.checked;
     update("持ち込み用紙の受け取りを更新しました。");
     view.querySelector(`input[data-action="receipt"][data-id="${order.id}"]`)?.focus();
+  });
+
+  view.addEventListener("input", event => {
+    if (event.target.name === "quantity") updatePaperCostPreview();
   });
 
   view.addEventListener("submit", event => {
