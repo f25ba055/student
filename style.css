@@ -38,6 +38,10 @@ td button { white-space: nowrap; }
 .quote-heading h2 { margin-bottom: 4px; }
 .quote-order-number { font-size: 1.1rem; }
 .quote-order-number strong { font-size: 1.25rem; }
+.discount-note { color: #5b6e6c; }
+textarea { width: 100%; border: 1px solid #72908f; border-radius: 3px; padding: 8px; resize: vertical; font-family: inherit; }
+.validation-success { color: #087260; font-weight: 700; }
+.validation-error { color: #a84800; font-weight: 700; }
 
 @media print {
   body { background: #fff; }

@@ -76,6 +76,8 @@
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
       ${select("加工", "finish", shop.finish, order?.finish)}
       ${select("納期区分", "speed", { standard: "通常", rush: "特急" }, order?.rush ? "rush" : "standard")}
+      <label>キャンペーン注文<input name="campaign" type="checkbox" ${order?.campaign ? "checked" : ""}></label>
+      ${select("キャンペーン特急料金", "campaignRush", { apply: "特急料金を付ける", waive: "特急料金を外す" }, order?.waiveRush ? "waive" : "apply")}
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
@@ -236,7 +238,9 @@
       const fields = {
         customer: data.get("customer").trim(), product: data.get("product"), quantity: Number(data.get("quantity")),
         paper: data.get("paper"), double: data.get("sides") === "double", finish: data.get("finish"),
-        rush: data.get("speed") === "rush", due: data.get("due"), delivery: data.get("delivery"), address: data.get("address").trim()
+        rush: data.get("speed") === "rush", campaign: data.has("campaign"),
+        waiveRush: data.get("campaignRush") === "waive", due: data.get("due"), delivery: data.get("delivery"),
+        address: data.get("address").trim()
       };
       if (!fields.customer || (fields.delivery === "ship" && !fields.address)) {
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
