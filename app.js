@@ -126,11 +126,13 @@
       </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button><button type="submit" name="pauseLot">作業中断を記録</button><button type="submit" name="resumeLot">作業再開を記録</button></div></form>` : "";
     const lotRows = candidates.flatMap(item => (item.lots || []).map(lot => {
       const advance = nextLabel[lot.status] ? button(nextLabel[lot.status], "advanceLot", `${item.id}:${lot.id}`) : "";
+      const revert = lot.status === "inspected" && item.status !== "delivered"
+        ? button("加工中へ戻す", "revertLot", `${item.id}:${lot.id}`) : "";
       const pauseInfo = lot.status === "paused"
         ? `理由: ${esc(lot.pauseReason) || "未記入"}<br>再開予定: ${esc(lot.resumeAt) || "未設定"}`
         : (lot.pauseHistory?.length ? `直近の中断: ${esc(lot.pauseHistory.at(-1).reason)}` : "-");
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
-        esc(item.workOwner) || "未割当", pauseInfo, advance + button("ロットを選択", "choose", item.id)];
+        esc(item.workOwner) || "未割当", pauseInfo, advance + revert + button("ロットを選択", "choose", item.id)];
     }));
     return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "中断記録", "操作"], lotRows);
   }
@@ -286,6 +288,16 @@
         const lot = selectedOrder?.lots?.find(item => item.id === lotId);
         if (!lot) return;
         lot.status = { waiting: "ready", ready: "printing", printing: "finishing", finishing: "inspected" }[lot.status] || lot.status;
+        if (lot.status === "inspected") selectedOrder.status = "inspected";
+        break;
+      }
+      case "revertLot": {
+        const [orderId, lotId] = id.split(":").map(Number);
+        const selectedOrder = state.orders.find(item => item.id === orderId);
+        const lot = selectedOrder?.lots?.find(item => item.id === lotId);
+        if (!lot || selectedOrder.status === "delivered") return;
+        lot.status = "finishing";
+        selectedOrder.status = "finishing";
         break;
       }
       case "deliver": order.status = "delivered"; break;
