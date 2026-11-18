@@ -18,8 +18,10 @@
       const saved = JSON.parse(localStorage.getItem(storageKey));
       if (saved && Array.isArray(saved.orders) && saved.rates && Number.isInteger(saved.nextId)) {
         const paperDefaults = Object.fromEntries(Object.entries(shop.paper).map(([key, item]) => [key, item.unit]));
+        const paperAvailabilityDefaults = Object.fromEntries(Object.keys(shop.paper).map(key => [key, true]));
         const laminateDefaults = Object.fromEntries(Object.keys(shop.products).map(key => [key, shop.finish.laminate.fee]));
         saved.paperRates = { ...paperDefaults, ...(saved.paperRates && !Array.isArray(saved.paperRates) ? saved.paperRates : {}) };
+        saved.paperAvailability = { ...paperAvailabilityDefaults, ...(saved.paperAvailability && !Array.isArray(saved.paperAvailability) ? saved.paperAvailability : {}) };
         saved.laminateRates = { ...laminateDefaults, ...(saved.laminateRates && !Array.isArray(saved.laminateRates) ? saved.laminateRates : {}) };
         saved.rushFee = saved.rushFee ?? shop.defaultRushFee;
         return saved;
@@ -80,18 +82,24 @@
 
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
+    const availablePapers = Object.fromEntries(Object.entries(shop.paper).filter(([key]) =>
+      order || state.paperAvailability[key] !== false
+    ));
+    const paperNotice = !order && !Object.keys(availablePapers).length
+      ? "<p>現在、受付可能な用紙がありません。</p>"
+      : "";
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
       ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
       ${select("商品", "product", shop.products, order?.product)}
       ${field("部数", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
-      ${select("用紙", "paper", shop.paper, order?.paper)}
+      ${select("用紙", "paper", availablePapers, order?.paper)}
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
       ${select("加工", "finish", shop.finish, order?.finish)}
       ${select("納期区分", "speed", { standard: "通常", rush: "特急" }, order?.rush ? "rush" : "standard")}
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
-      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
+      </div>${paperNotice}<div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
       + table(["注文", "注文者", "商品", "部数", "状態", "納期", "配送先・変更履歴", "操作"], state.orders.map(item => [
         ...orderCells(item), esc(item.due), addressHistoryCell(item),
         (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
@@ -155,6 +163,9 @@
         field(product.name + "（円）", key, state.rates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <h3>用紙代（1部あたり）</h3><div class="grid">${Object.entries(shop.paper).map(([key, item]) =>
         field(item.name + "（円）", "paper_" + key, state.paperRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
+      <h3>用紙の受付状況</h3><div class="grid">${Object.entries(shop.paper).map(([key, item]) =>
+        select(item.name, "paperAvailability_" + key, { available: "受付中", unavailable: "品切れ" },
+          state.paperAvailability[key] === false ? "unavailable" : "available")).join("")}</div>
       <h3>ラミネート料金（1注文あたり）</h3>
       <p>商品ごとの定額です。カードは従来どおり1注文あたりの定額を設定できます。</p>
       <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
@@ -199,6 +210,10 @@
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
         return;
       }
+      if (!fields.paper || (!order && state.paperAvailability[fields.paper] === false)) {
+        notice.textContent = "品切れの用紙は新規注文に選択できません。";
+        return;
+      }
       if (order?.status === "received") {
         order.addressHistory ??= [];
         if (order.address && order.address !== fields.address) {
@@ -220,6 +235,7 @@
     if (type === "rates") {
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
       for (const paper of Object.keys(shop.paper)) state.paperRates[paper] = Number(data.get("paper_" + paper));
+      for (const paper of Object.keys(shop.paper)) state.paperAvailability[paper] = data.get("paperAvailability_" + paper) === "available";
       for (const product of Object.keys(shop.products)) state.laminateRates[product] = Number(data.get("laminate_" + product));
       state.rushFee = Number(data.get("rushFee"));
     }

@@ -47,11 +47,12 @@
     ].map(order => ({ ...common, ...order }));
     const rates = Object.fromEntries(Object.entries(products).map(([key, value]) => [key, value.unit]));
     const paperRates = Object.fromEntries(Object.entries(paper).map(([key, value]) => [key, value.unit]));
+    const paperAvailability = Object.fromEntries(Object.keys(paper).map(key => [key, true]));
     const laminateRates = Object.fromEntries(Object.keys(products).map(key => [key, finish.laminate.fee]));
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates, paperRates, laminateRates, defaultRushFee);
     }
-    return { orders, rates, paperRates, laminateRates, rushFee: defaultRushFee, nextId: 107 };
+    return { orders, rates, paperRates, paperAvailability, laminateRates, rushFee: defaultRushFee, nextId: 107 };
   }
 
   const api = { status, products, paper, finish, delivery, defaultRushFee, quote, manufacturingOrders, seed };
