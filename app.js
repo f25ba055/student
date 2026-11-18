@@ -12,6 +12,8 @@
   let state = load();
   let page = "orders";
   let selection = null;
+  let orderNoFilter = "";
+  let customerFilter = "";
 
   function load() {
     try {
@@ -60,6 +62,43 @@
     return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
   }
 
+  // 注文番号の入力を正規化する（全角数字・「#」・空白を許容）
+  function normalizeOrderNo(value) {
+    return String(value ?? "")
+      .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+      .replace(/[#＃\s]/g, "");
+  }
+
+  // 注文者名の検索語を正規化する（前後の空白除去・英字の大小を区別しない）
+  function normalizeCustomerQuery(value) {
+    return String(value ?? "").trim().toLowerCase();
+  }
+
+  function filtersActive() {
+    return Boolean(normalizeOrderNo(orderNoFilter) || normalizeCustomerQuery(customerFilter));
+  }
+
+  // 注文番号は完全一致、注文者名は部分一致。両方入力した場合は両方に一致する注文だけを表示する
+  function filteredOrders() {
+    const no = normalizeOrderNo(orderNoFilter);
+    const name = normalizeCustomerQuery(customerFilter);
+    return state.orders.filter(item =>
+      (!no || String(item.id) === no) && (!name || item.customer.toLowerCase().includes(name)));
+  }
+
+  function ordersListHtml() {
+    const rows = filteredOrders();
+    const empty = filtersActive() && !rows.length ? "<p>条件に一致する注文はありません。</p>" : "";
+    return empty || table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], rows.map(item => [
+      ...orderCells(item), esc(item.due),
+      (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
+    ]));
+  }
+
+  function orderCountText() {
+    return filtersActive() ? `${filteredOrders().length} 件を表示中（全 ${state.orders.length} 件）` : "";
+  }
+
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
@@ -73,11 +112,14 @@
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
-      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
-      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], state.orders.map(item => [
-        ...orderCells(item), esc(item.due),
-        (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
-      ]));
+      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>
+      <div class="panel" role="search"><div class="grid">
+        <label>注文番号で絞り込み
+          <input name="orderNo" type="search" inputmode="numeric" autocomplete="off" placeholder="例：103" value="${esc(orderNoFilter)}"></label>
+        <label>注文者名で検索（一部でも可）
+          <input name="customerQuery" type="search" autocomplete="off" placeholder="例：書店" value="${esc(customerFilter)}"></label></div>
+        <p id="orderCount" aria-live="polite">${orderCountText()}</p></div>
+      <div id="orderList">${ordersListHtml()}</div>`;
   }
 
   function conditionText(item) {
@@ -176,6 +218,16 @@
     nav.querySelector('[aria-current="page"]').focus();
   });
 
+  // 入力欄を作り直さず一覧だけ差し替える（入力中のフォーカスを保つため）
+  view.addEventListener("input", event => {
+    const { name, value } = event.target;
+    if (name === "orderNo") orderNoFilter = value;
+    else if (name === "customerQuery") customerFilter = value;
+    else return;
+    document.querySelector("#orderList").innerHTML = ordersListHtml();
+    document.querySelector("#orderCount").textContent = orderCountText();
+  });
+
   view.addEventListener("submit", event => {
     event.preventDefault();
     const data = new FormData(event.target);
@@ -191,6 +243,7 @@
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
         return;
       }
+      orderNoFilter = customerFilter = ""; // 保存した注文が絞り込みで隠れないようにする
       if (order?.status === "received") Object.assign(order, fields);
       else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null, quoteHistory: [] });
     }
