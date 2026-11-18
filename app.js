@@ -87,7 +87,7 @@
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
     const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
-    const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
+    const blocks = !order ? "" : `<section class="panel quote-document"><div class="quote-heading"><div><h2>見積書</h2><p class="quote-order-number">注文番号：<strong>${order.id}</strong></p></div><p>注文者：${esc(order.customer)}</p></div>${
       `<label class="zero-items-toggle"><input type="checkbox" data-setting="showZeroItems" ${showZeroItems ? "checked" : ""}>0円の項目を表示</label>` +
       table(["項目", "金額"], [
         ["印刷代", pricing.printing], ["用紙代", pricing.paperCost],
@@ -96,10 +96,10 @@
       ].filter(([, amount]) => showZeroItems || amount !== 0).map(([label, amount]) => [label, money(amount)]))
     }<p class="summary">合計 ${money(pricing.total)}</p>${
       order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
-    }</section>`;
-    return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
+    }<div class="actions quote-actions">${button("見積書を印刷", "printQuote", order.id)}</div></section>`;
+    return blocks + `<div class="quote-list">` + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
       [...orderCells(item), button("見積を見る", "quote", item.id)]
-    ));
+    )) + `</div>`;
   }
 
   function renderProof() {
@@ -228,6 +228,7 @@
     if (!order) return;
     switch (action) {
       case "quote": page = "quotes"; selection = order.id; render(); view.focus(); return;
+      case "printQuote": window.print(); return;
       case "edit":
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
