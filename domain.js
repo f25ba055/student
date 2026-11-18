@@ -13,13 +13,14 @@
   const paper = { standard: { name: "標準紙", unit: 2 }, coated: { name: "光沢紙", unit: 4 }, heavy: { name: "厚紙", unit: 6 } };
   const finish = { none: { name: "なし", fee: 0 }, fold: { name: "折り加工", fee: 500 }, laminate: { name: "ラミネート", fee: 1000 } };
   const delivery = { pickup: "店頭受取", ship: "配送" };
+  const defaultRushFee = 1000;
 
-  function quote(order, rates, paperRates = null, laminateRates = null) {
+  function quote(order, rates, paperRates = null, laminateRates = null, rushFee = defaultRushFee) {
     const printing = Number(rates[order.product]) * order.quantity * (order.double ? 2 : 1);
     const finishing = order.finish === "laminate"
       ? Number(laminateRates?.[order.product] ?? finish.laminate.fee)
       : finish[order.finish].fee;
-    const rush = order.rush ? 1000 : 0;
+    const rush = order.rush ? Number(rushFee) : 0;
     const paperCost = Number(paperRates?.[order.paper] ?? paper[order.paper].unit) * order.quantity;
     const discount = order.quantity >= 1000 ? Math.floor(printing * 0.1) : 0;
     const subtotal = printing + paperCost + finishing + rush;
@@ -48,12 +49,12 @@
     const paperRates = Object.fromEntries(Object.entries(paper).map(([key, value]) => [key, value.unit]));
     const laminateRates = Object.fromEntries(Object.keys(products).map(key => [key, finish.laminate.fee]));
     for (const order of orders) {
-      if (order.status !== "received") order.quoteSnapshot = quote(order, rates, paperRates, laminateRates);
+      if (order.status !== "received") order.quoteSnapshot = quote(order, rates, paperRates, laminateRates, defaultRushFee);
     }
-    return { orders, rates, paperRates, laminateRates, nextId: 107 };
+    return { orders, rates, paperRates, laminateRates, rushFee: defaultRushFee, nextId: 107 };
   }
 
-  const api = { status, products, paper, finish, delivery, quote, manufacturingOrders, seed };
+  const api = { status, products, paper, finish, delivery, defaultRushFee, quote, manufacturingOrders, seed };
   globalThis.PrintShop = api;
   if (typeof module !== "undefined") module.exports = api;
 })();

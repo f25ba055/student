@@ -21,6 +21,7 @@
         const laminateDefaults = Object.fromEntries(Object.keys(shop.products).map(key => [key, shop.finish.laminate.fee]));
         saved.paperRates = { ...paperDefaults, ...(saved.paperRates && !Array.isArray(saved.paperRates) ? saved.paperRates : {}) };
         saved.laminateRates = { ...laminateDefaults, ...(saved.laminateRates && !Array.isArray(saved.laminateRates) ? saved.laminateRates : {}) };
+        saved.rushFee = saved.rushFee ?? shop.defaultRushFee;
         return saved;
       }
     } catch (error) {
@@ -99,7 +100,7 @@
 
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
-    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates, state.paperRates, state.laminateRates) : null;
+    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates, state.paperRates, state.laminateRates, state.rushFee) : null;
     const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
       table(["項目", "金額"], [
         ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
@@ -158,6 +159,9 @@
       <p>商品ごとの定額です。カードは従来どおり1注文あたりの定額を設定できます。</p>
       <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
         field(product.name + (key === "card" ? "（定額・円）" : "（円）"), "laminate_" + key, state.laminateRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
+      <h3>特急サービス料金</h3>
+      <p>特急を選択した注文1件あたりの料金です。</p>
+      ${field("特急料金（円）", "rushFee", state.rushFee, "number", "required min=0 max=100000 step=1")}
       <div class="actions"><button>単価を保存</button></div></form>`
       + table(["加工", "1注文あたり"], Object.entries(shop.finish).filter(([key]) => key !== "laminate").map(([, item]) => [esc(item.name), money(item.fee)]));
   }
@@ -217,6 +221,7 @@
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
       for (const paper of Object.keys(shop.paper)) state.paperRates[paper] = Number(data.get("paper_" + paper));
       for (const product of Object.keys(shop.products)) state.laminateRates[product] = Number(data.get("laminate_" + product));
+      state.rushFee = Number(data.get("rushFee"));
     }
     selection = null;
     update("保存しました。");
@@ -234,7 +239,7 @@
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
       case "confirmQuote":
-        order.quoteSnapshot = shop.quote(order, state.rates, state.paperRates, state.laminateRates);
+        order.quoteSnapshot = shop.quote(order, state.rates, state.paperRates, state.laminateRates, state.rushFee);
         order.status = "quoted";
         break;
       case "approve": order.status = "ready"; break;
