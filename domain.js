@@ -10,9 +10,19 @@
     poster: { name: "ポスター", unit: 120 },
     card: { name: "カード", unit: 16 }
   };
-  const paper = { standard: { name: "標準紙", unit: 2 }, coated: { name: "光沢紙", unit: 4 }, heavy: { name: "厚紙", unit: 6 } };
+  const paper = { standard: { name: "標準紙", unit: 2 }, coated: { name: "光沢紙", unit: 4 }, heavy: { name: "厚紙", unit: 6 }, brought: { name: "持ち込み用紙", unit: 0 } };
   const finish = { none: { name: "なし", fee: 0 }, fold: { name: "折り加工", fee: 500 }, laminate: { name: "ラミネート", fee: 1000 } };
   const delivery = { pickup: "店頭受取", ship: "配送" };
+  const customerTypes = { corporate: "法人", individual: "個人" };
+  const machines = {
+    poster: { name: "ポスター用断裁機" },
+    card: { name: "カード用断裁機" },
+    general: { name: "汎用断裁機" }
+  };
+
+  function machineForProduct(product) {
+    return product === "poster" ? "poster" : product === "card" ? "card" : "general";
+  }
 
   function quote(order, rates) {
     const printing = Number(rates[order.product]) * order.quantity * (order.double ? 2 : 1);
@@ -24,15 +34,51 @@
     return { printing, paperCost, finishing, rush, discount, total: subtotal - discount };
   }
 
+  // 電話番号：全角数字・全角ハイフン類・全角括弧を半角にそろえる
+  function normalizePhone(value) {
+    return String(value ?? "")
+      .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+      .replace(/[－ー‐―−]/g, "-")
+      .replace(/（/g, "(").replace(/）/g, ")")
+      .trim();
+  }
+
+  // 空欄は可。入力する場合は数字・ハイフン・括弧・空白のみで、数字が10〜11桁（国内の固定・携帯）
+  function isValidPhone(value) {
+    if (!value) return true;
+    if (!/^[0-9\-() ]+$/.test(value)) return false;
+    const digits = value.replace(/\D/g, "").length;
+    return digits >= 10 && digits <= 11;
+  }
+
   function manufacturingOrders(orders) {
-    return orders.filter(order => ["returned", "ready", "printing", "finishing", "inspected"].includes(order.status));
+    return orders.filter(order => ["returned", "ready", "printing", "finishing", "inspected", "delivered"].includes(order.status));
+  }
+
+  function lotStatusFromOrder(order) {
+    return { received: "waiting", quoted: "waiting", proof: "waiting", returned: "waiting",
+      ready: "ready", printing: "printing", finishing: "finishing", inspected: "inspected", delivered: "delivered" }[order.status] || "waiting";
+  }
+
+  function ensureLots(order) {
+    if (!Array.isArray(order.lots) || !order.lots.length) {
+      order.lots = [{ id: 1, label: "初回分", quantity: order.quantity, status: lotStatusFromOrder(order), pauseReason: "", resumeAt: "", pauseHistory: [] }];
+    }
+    order.lots.forEach(lot => {
+      if (!lot.pauseHistory) lot.pauseHistory = [];
+      if (!("pauseReason" in lot)) lot.pauseReason = "";
+      if (!("resumeAt" in lot)) lot.resumeAt = "";
+    });
+    order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
+    return order;
   }
 
   function seed() {
     const common = {
       product: "flyer", quantity: 300, paper: "standard", double: false, finish: "none",
       rush: false, due: "2026-12-04", delivery: "pickup", address: "", note: "",
-      proofFile: "", revision: 0, workOwner: "", quoteSnapshot: null
+      proofFile: "", revision: 0, workOwner: "", machine: "general", quoteSnapshot: null,
+      customerType: "corporate", recipient: "", building: "", phone: ""
     };
     const orders = [
       { id: 101, customer: "駅前書店", status: "received" },
@@ -41,7 +87,7 @@
       { id: 104, customer: "青葉商店会", status: "received", quantity: 1000, double: true },
       { id: 105, customer: "北通りカフェ", status: "ready", product: "card", proofFile: "cafe-v1.pdf", revision: 1 },
       { id: 106, customer: "まちなか図書室", status: "inspected", product: "poster", quantity: 12, delivery: "ship", address: "中央通り2-8", proofFile: "library-v1.pdf", revision: 1 }
-    ].map(order => ({ ...common, ...order }));
+    ].map(order => ensureLots({ ...common, ...order }));
     const rates = Object.fromEntries(Object.entries(products).map(([key, value]) => [key, value.unit]));
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates);
@@ -49,7 +95,7 @@
     return { orders, rates, nextId: 107 };
   }
 
-  const api = { status, products, paper, finish, delivery, quote, manufacturingOrders, seed };
+  const api = { status, products, paper, finish, delivery, customerTypes, machines, machineForProduct, quote, normalizePhone, isValidPhone, manufacturingOrders, seed };
   globalThis.PrintShop = api;
   if (typeof module !== "undefined") module.exports = api;
 })();
