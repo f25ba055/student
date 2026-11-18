@@ -12,6 +12,7 @@
   let state = load();
   let page = "orders";
   let selection = null;
+  let broughtOnly = false;
 
   function load() {
     try {
@@ -112,13 +113,19 @@
   }
 
   function renderWork() {
-    const candidates = shop.manufacturingOrders(state.orders);
+    const manufacturingOrders = shop.manufacturingOrders(state.orders);
+    const candidates = broughtOnly
+      ? manufacturingOrders.filter(item => item.paper === "brought")
+      : manufacturingOrders;
     const nextLabel = { ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
     const order = candidates.find(item => item.id === selection);
     const form = order ? `<form class="panel" data-form="owner"><h2>注文 ${order.id} の製造担当</h2><div class="grid">
       ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}</div>
       <div class="actions"><button>担当を保存</button></div></form>` : "";
-    return form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "操作"], candidates.map(item => [
+    return `<label>表示対象<select id="work-paper-filter">
+      <option value="all" ${broughtOnly ? "" : "selected"}>すべての用紙</option>
+      <option value="brought" ${broughtOnly ? "selected" : ""}>持ち込み用紙のみ</option>
+    </select></label>` + form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "操作"], candidates.map(item => [
       ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当", button("担当を設定", "choose", item.id) +
       (nextLabel[item.status] ? button(nextLabel[item.status], "advance", item.id) : "")
     ]));
@@ -160,6 +167,13 @@
     notice.textContent = "";
     render();
     nav.querySelector('[aria-current="page"]').focus();
+  });
+
+  view.addEventListener("change", event => {
+    if (event.target.id !== "work-paper-filter") return;
+    broughtOnly = event.target.value === "brought";
+    render();
+    view.querySelector("#work-paper-filter").focus();
   });
 
   view.addEventListener("submit", event => {
