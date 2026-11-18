@@ -13,6 +13,8 @@
   let page = "orders";
   let selection = null;
   let showZeroItems = state.showZeroItems === true;
+  let bulkRateValidation = null;
+  let bulkRateText = "";
   const roleSelect = document.querySelector("#role");
   let currentRole = ["staff", "pricing", "admin"].includes(state.currentRole) ? state.currentRole : "staff";
   const canChangeRates = () => currentRole === "pricing" || currentRole === "admin";
@@ -142,14 +144,61 @@
         + table(["用紙", "1部あたり"], Object.values(shop.paper).map(item => [esc(item.name), money(item.unit)]))
         + table(["加工", "1注文あたり"], Object.values(shop.finish).map(item => [esc(item.name), money(item.fee)]));
     }
+    const preview = bulkRateValidation ? renderBulkRateValidation(bulkRateValidation) : "";
     return `<form class="panel" data-form="rates"><h2>商品別の印刷単価</h2>
       <p>片面1部あたりの単価です。確定済みの見積には確定時点の金額を表示します。</p>
       <p>料金設定に関する相談先：<strong>経理部</strong></p>
       <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
         field(product.name + "（円）", key, state.rates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <div class="actions"><button>単価を保存</button></div></form>`
+      + `<section class="panel"><h2>仕入先価格表の一括登録</h2>
+        <p>商品名または商品キーと金額を、カンマ、タブ、またはスペースで区切って1行ずつ入力してください。例：チラシ,12</p>
+        <label>価格表<textarea id="bulk-rates" rows="7" placeholder="チラシ,12&#10;ポスター,150&#10;カード,18">${esc(bulkRateText)}</textarea></label>
+        <div class="actions">${button("検証結果を表示", "validateBulkRates", "")}${button("検証済みを登録", "applyBulkRates", "")}</div>
+        ${preview}</section>`
       + table(["用紙", "1部あたり"], Object.values(shop.paper).map(item => [esc(item.name), money(item.unit)]))
       + table(["加工", "1注文あたり"], Object.values(shop.finish).map(item => [esc(item.name), money(item.fee)]));
+  }
+
+  function splitBulkRateLine(line) {
+    const normalized = line.trim();
+    const separator = normalized.match(/,|、|\t|\s+/);
+    if (!separator) return [normalized, ""];
+    const index = separator.index;
+    return [normalized.slice(0, index).trim(), normalized.slice(index + separator[0].length).trim()];
+  }
+
+  function validateBulkRates(text) {
+    const rows = [];
+    const seen = new Set();
+    text.split(/\r?\n/).forEach((line, index) => {
+      const source = line.trim();
+      if (!source) return;
+      if (/^(商品(名|キー)?|商品名\s*[,、\t\s]+金額|商品,?単価)$/i.test(source)) return;
+      const [name, rawAmount] = splitBulkRateLine(source);
+      const amountText = rawAmount.replace(/[,\s円￥]/g, "").replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
+      const product = Object.entries(shop.products).find(([key, item]) => key === name || item.name === name);
+      const errors = [];
+      if (!product) errors.push("商品名または商品キーが不正です");
+      if (!/^\d+$/.test(amountText)) errors.push("金額は整数で入力してください");
+      const amount = Number(amountText);
+      if (/^\d+$/.test(amountText) && (amount < 0 || amount > 100000)) errors.push("金額は0～100000円の範囲で入力してください");
+      if (product && seen.has(product[0])) errors.push("商品が重複しています");
+      if (product) seen.add(product[0]);
+      rows.push({ line: index + 1, name, amount: /^\d+$/.test(amountText) ? amount : null, key: product?.[0] ?? "", valid: errors.length === 0, errors });
+    });
+    return { rows, validCount: rows.filter(row => row.valid).length, invalidCount: rows.filter(row => !row.valid).length };
+  }
+
+  function renderBulkRateValidation(result) {
+    if (!result.rows.length) return `<p class="validation-summary">検証対象の行がありません。商品名と金額を入力してください。</p>`;
+    const status = result.invalidCount === 0
+      ? `<p class="validation-success">検証OK：${result.validCount}件は登録できます。</p>`
+      : `<p class="validation-error">検証エラー：${result.invalidCount}件があります。エラーのない場合のみ登録できます。</p>`;
+    const rows = result.rows.map(row =>
+      `<tr><td>${row.line}</td><td>${esc(row.name)}</td><td>${row.valid ? money(row.amount) : "-"}</td><td>${row.valid ? "OK" : esc(row.errors.join("／"))}</td></tr>`
+    );
+    return status + table(["行", "商品", "金額", "検証結果"], rows);
   }
 
   const renderers = { orders: renderOrders, quotes: renderQuotes, proof: renderProof, work: renderWork, delivery: renderDelivery, rates: renderRates };
@@ -220,10 +269,47 @@
     update(showZeroItems ? "0円の項目を表示します。" : "0円の項目を非表示にしました。");
   });
 
+  view.addEventListener("input", event => {
+    if (event.target.id === "bulk-rates") bulkRateText = event.target.value;
+  });
+
   view.addEventListener("click", event => {
     const control = event.target.closest("button[data-action]");
     if (!control) return;
     const { action, id } = control.dataset;
+    if (action === "validateBulkRates") {
+      if (!canChangeRates()) return;
+      bulkRateText = document.querySelector("#bulk-rates")?.value ?? "";
+      bulkRateValidation = validateBulkRates(bulkRateText);
+      render();
+      notice.textContent = "価格表を検証しました。登録前に検証結果を確認してください。";
+      return;
+    }
+    if (action === "applyBulkRates") {
+      if (!canChangeRates()) {
+        notice.textContent = "料金担当または管理者だけが単価を変更できます。";
+        return;
+      }
+      const currentText = document.querySelector("#bulk-rates")?.value ?? "";
+      bulkRateText = currentText;
+      const currentValidation = validateBulkRates(currentText);
+      bulkRateValidation = currentValidation;
+      if (!bulkRateValidation.rows.length) {
+        notice.textContent = "先に検証結果を表示してください。";
+        render();
+        return;
+      }
+      if (bulkRateValidation.invalidCount > 0 || bulkRateValidation.validCount === 0) {
+        notice.textContent = "検証エラーがあります。修正して再度検証してください。";
+        render();
+        return;
+      }
+      bulkRateValidation.rows.forEach(row => { state.rates[row.key] = row.amount; });
+      bulkRateValidation = null;
+      bulkRateText = "";
+      update("検証済みの価格表を登録しました。");
+      return;
+    }
     const order = state.orders.find(item => item.id === Number(id));
     if (!order) return;
     switch (action) {
@@ -259,6 +345,8 @@
     state.currentRole = currentRole;
     showZeroItems = false;
     state.showZeroItems = false;
+    bulkRateValidation = null;
+    bulkRateText = "";
     selection = null;
     update("サンプルに戻しました。");
   });
