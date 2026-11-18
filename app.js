@@ -9,7 +9,8 @@
   const notice = document.querySelector("#notice");
   const money = value => new Intl.NumberFormat("ja-JP").format(value) + " 円";
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-  const taxLabel = "税抜"; // 料金設定の金額が税込に変わったら "税込" に変更する
+  const minimumQuantities = { "カード": 50 };
+  const minimumQuantity = productKey => minimumQuantities[shop.products[productKey]?.name] ?? 1;
   let state = load();
   let page = "orders";
   let selection = null;
@@ -66,7 +67,7 @@
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
       ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
       ${select("商品", "product", shop.products, order?.product)}
-      ${field("部数", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
+      ${field("部数（カードは50部以上）", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
       ${select("用紙", "paper", shop.paper, order?.paper)}
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
       ${select("加工", "finish", shop.finish, order?.finish)}
@@ -190,6 +191,11 @@
       };
       if (!fields.customer || (fields.delivery === "ship" && !fields.address)) {
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
+        return;
+      }
+      const minimum = minimumQuantity(fields.product);
+      if (fields.quantity < minimum) {
+        notice.textContent = `${shop.products[fields.product].name}は${minimum}部以上でご注文ください。`;
         return;
       }
       if (order?.status === "received") Object.assign(order, fields);
