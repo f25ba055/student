@@ -92,7 +92,7 @@
   function trialHistory(order) {
     const trials = order.quoteHistory ?? [];
     if (!trials.length) return "<p>保存した試算はありません。</p>";
-    return table(["試算日時", "区分", "条件", "合計"], trials.slice().reverse().map(trial => [
+    return table(["試算日時", "区分", "条件", `合計（${taxLabel}）`], trials.slice().reverse().map(trial => [
       esc(new Date(trial.at).toLocaleString("ja-JP")), "試算（未確定）", esc(conditionText(trial)), money(trial.pricing.total)
     ]));
   }
@@ -101,11 +101,11 @@
     const order = state.orders.find(item => item.id === selection);
     const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
     const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
-      table(["項目", "金額"], [
+      table(["項目", `金額（${taxLabel}）`], [
         ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
         ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
       ])
-    }<p class="summary">合計 ${money(pricing.total)}</p>${
+    }<p class="summary">合計 ${money(pricing.total)}（${taxLabel}）</p><p>表示金額はすべて${taxLabel}です。${taxLabel === "税抜" ? "消費税は含まれていません。" : "消費税を含みます。"}</p>${
       order.status === "received"
         ? button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
         : "<p>確定済みの見積を表示しています。</p>"
