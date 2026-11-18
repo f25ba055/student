@@ -127,196 +127,35 @@
     return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
   }
 
-  // 注文番号の入力を正規化する（全角数字・「#」・空白を許容）
-  function normalizeOrderNo(value) {
-    return String(value ?? "")
-      .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
-      .replace(/[#＃\s]/g, "");
-  }
-
-  function filtersActive() {
-    return Boolean(normalizeOrderNo(orderNoFilter) || normalizeName(customerFilter) || statusFilter || normalizeName(groupFilter));
-  }
-
-  // 注文番号・状態・相談番号は完全一致、注文者名は部分一致（空白・全半角の違いは無視）。
-  // 複数入力した場合は、すべてに一致する注文だけを表示する
-  function filteredOrders() {
-    const no = normalizeOrderNo(orderNoFilter);
-    const name = normalizeName(customerFilter);
-    const group = normalizeName(groupFilter);
-    return state.orders.filter(item =>
-      (!no || String(item.id) === no) && (!name || normalizeName(item.customer).includes(name)) &&
-      (!statusFilter || item.status === statusFilter) && (!group || normalizeName(item.group) === group));
-  }
-
-  function ordersListHtml() {
-    const found = filteredOrders();
-    const rows = newestFirst ? found.slice().sort((a, b) => b.id - a.id) : found; // 既定は従来の順
-    const empty = filtersActive() && !rows.length ? "<p>条件に一致する注文はありません。</p>" : "";
-    return empty || table(["注文", "注文者", "区分", "受付経路", "相談番号", "商品", "サイズ", "部数", "状態", "納期", "同じ注文者の前回納期", "備考", "操作"], rows.map(item => {
-      const [id, customer, product, ...rest] = orderCells(item);
-      return [
-        id, customer, esc(customerTypeLabel(item)), esc(shop.channels[item.channel] ?? "未設定"),
-        item.group ? button(esc(item.group), "filterGroup", item.id) : "-", product, esc(item.size ?? "未設定"),
-        ...rest, esc(dueText(item)), previousDue(item),
-        item.remarks ? `<span class="memo">${esc(item.remarks)}</span>` : "-",
-        (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id) +
-          button("複製して受付", "duplicate", item.id)
-      ];
-    }));
-  }
-
-  // 件数と合計部数（絞り込み中は、その結果の合計）
-  function orderCountText() {
-    const rows = filteredOrders();
-    const total = rows.reduce((sum, item) => sum + Number(item.quantity), 0);
-    const count = filtersActive() ? `${rows.length} 件を表示中（全 ${state.orders.length} 件）` : `全 ${state.orders.length} 件`;
-    return `${count} ・ 合計 ${new Intl.NumberFormat("ja-JP").format(total)} 部`;
+  function orderedByDeadline(orders) {
+    return [...orders].sort((left, right) => {
+      const dueCompare = String(left.due || "9999-12-31").localeCompare(String(right.due || "9999-12-31"));
+      if (dueCompare !== 0) return dueCompare;
+      if (Boolean(left.rush) !== Boolean(right.rush)) return left.rush ? -1 : 1;
+      return left.id - right.id;
+    });
   }
 
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
-    // 初期値：編集中は注文の値、複製中は引き継いだ仕様。注文者・納期・納品方法は引き継がず毎回入力する
-    const base = order ?? draft;
-    const isShip = order?.delivery === "ship";
-    const title = order ? `注文 ${order.id} を編集` : draft ? `新規注文（注文 ${draft.from} の仕様を引き継ぎ）` : "新規注文";
-    const customerTypeSelect = `<label>注文者区分<select name="customerType" required><option value="">選択してください</option>${
-      Object.entries(shop.customerTypes).map(([key, name]) =>
-        `<option value="${key}" ${key === order?.customerType ? "selected" : ""}>${esc(name)}</option>`).join("")
-    }</select></label>`;
-    const channelSelect = `<label>受付経路<select name="channel" required><option value="">選択してください</option>${
-      Object.entries(shop.channels).map(([key, name]) =>
-        `<option value="${key}" ${key === order?.channel ? "selected" : ""}>${esc(name)}</option>`).join("")
-    }</select></label>`;
-    const sizeSelect = `<label>サイズ<select name="size" required><option value="">選択してください</option>${
-      Object.entries(shop.sizes).map(([key, name]) =>
-        `<option value="${key}" ${key === base?.size ? "selected" : ""}>${esc(name)}</option>`).join("")
-    }</select></label>`;
-    const finishSelect = `<label>加工<select name="finish">${
-      finishOptions(base?.product ?? Object.keys(shop.products)[0], base?.finish)}</select></label>`;
-    const customerNames = [...new Set(state.orders.map(item => item.customer))].sort((a, b) => a.localeCompare(b, "ja"));
-    const tentative = Boolean(order?.tentative);
-    const statusOptions = `<option value="">すべての状態</option>${Object.entries(shop.status).map(([key, name]) =>
-      `<option value="${key}" ${key === statusFilter ? "selected" : ""}>${esc(name)}</option>`).join("")}`;
-    return `<form class="panel" data-form="order"><h2>${title}</h2>${
-      draft && !order ? "<p>注文者・区分・希望納期・納品方法は引き継いでいません。内容を確認して入力してください。</p>" : ""
-    }<div class="grid">
-      ${field("注文者", "customer", order?.customer, "text", 'required maxlength=100 list="customerList" autocomplete="off"')}
-      ${customerTypeSelect}
-      ${channelSelect}
-      ${field("相談番号（同じ相談の注文には同じ番号）", "group", order?.group, "text", "maxlength=30")}
-      ${field("連絡先（電話番号）", "phone", order?.phone, "tel", 'maxlength=20 inputmode="tel" autocomplete="off" placeholder="例：03-1234-5678"')}
-      ${select("商品", "product", shop.products, base?.product)}
-      ${sizeSelect}
-      ${field("部数", "quantity", base?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
-      ${select("用紙", "paper", shop.paper, base?.paper)}
-      <label><input type="checkbox" name="returnSurplus" ${base?.returnSurplus ? "checked" : ""}>余剰を納品時に返却する</label>
-      ${select("印刷面", "sides", { single: "片面", double: "両面" }, base?.double ? "double" : "single")}
-      ${finishSelect}
-      <label><input type="checkbox" name="proofRequired" ${base?.proofRequired ? "checked" : ""}>校正見本あり（校正料金の対象）</label>
+    return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
+      ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
+      ${select("商品", "product", shop.products, order?.product)}
+      ${field("部数（カードは50部以上）", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
+      ${select("用紙", "paper", shop.paper, order?.paper)}
+      <label><input type="checkbox" name="returnSurplus" ${order?.returnSurplus ? "checked" : ""}>余剰を納品時に返却する</label>
+      ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
+      ${select("加工", "finish", shop.finish, order?.finish)}
       ${select("納期区分", "speed", { standard: "通常", rush: "特急" }, order?.rush ? "rush" : "standard")}
       ${field("希望納期", "due", order?.due, "date", tentative ? "disabled" : "required")}
       <label><input type="checkbox" name="dueTbd" ${tentative ? "checked" : ""}>納期未定（仮受付）</label>
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
-      ${shipField("送り先の担当者名", "recipient", order?.recipient, isShip, "maxlength=50")}
-      ${shipField("配送先住所（番地まで）", "address", order?.address, isShip, "maxlength=200")}
-      ${shipField("建物名・部屋番号", "building", order?.building, isShip, "maxlength=100")}
-      ${textarea("備考（例：午前中は連絡不可）", "remarks", order?.remarks, "maxlength=500")}
-      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}${
-        draft && !order ? button("複製をやめる", "clear", draft.from) : ""}</div></form>
-      <div class="panel" role="search"><div class="grid">
-        <label>注文番号で絞り込み
-          <input name="orderNo" type="search" inputmode="numeric" autocomplete="off" placeholder="例：103" value="${esc(orderNoFilter)}"></label>
-        <label>注文者名で検索（一部でも可）
-          <input name="customerQuery" type="search" autocomplete="off" placeholder="例：書店" value="${esc(customerFilter)}"></label>
-        <label>状態で絞り込み<select name="statusQuery">${statusOptions}</select></label>
-        <label>相談番号で絞り込み
-          <input name="groupQuery" type="search" autocomplete="off" value="${esc(groupFilter)}"></label>
-        <label><input type="checkbox" name="newestFirst" ${newestFirst ? "checked" : ""}>新しい注文から表示（試験）</label></div>
-        <p id="orderCount" aria-live="polite">${orderCountText()}</p></div>
-      <div id="orderList">${ordersListHtml()}</div>
-      <datalist id="customerList">${customerNames.map(name => `<option value="${esc(name)}"></option>`).join("")}</datalist>`;
-  }
-
-  function formOrder(form) {
-    const data = new FormData(form);
-    return {
-      product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
-      double: data.get("sides") === "double", finish: data.get("finish"), rush: data.get("speed") === "rush"
-    };
-  }
-
-  function showEstimate() {
-    const form = view.querySelector('[data-form="order"]');
-    const output = view.querySelector("#estimate");
-    if (!form || !output) return;
-    const draft = formOrder(form);
-    if (!Number.isInteger(draft.quantity) || draft.quantity < 1) {
-      output.textContent = "部数を入力すると概算を表示します。";
-      return;
-    }
-    const single = shop.quote({ ...draft, double: false }, state.rates).total;
-    const double = shop.quote({ ...draft, double: true }, state.rates).total;
-    output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
-  }
-
-  function formOrder(form) {
-    const data = new FormData(form);
-    return {
-      product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
-      double: data.get("sides") === "double", finish: data.get("finish"), rush: data.get("speed") === "rush"
-    };
-  }
-
-  function showEstimate() {
-    const form = view.querySelector('[data-form="order"]');
-    const output = view.querySelector("#estimate");
-    if (!form || !output) return;
-    const draft = formOrder(form);
-    if (!Number.isInteger(draft.quantity) || draft.quantity < 1) {
-      output.textContent = "部数を入力すると概算を表示します。";
-      return;
-    }
-    const single = shop.quote({ ...draft, double: false }, state.rates).total;
-    const double = shop.quote({ ...draft, double: true }, state.rates).total;
-    output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
-  }
-
-  function formOrder(form) {
-    const data = new FormData(form);
-    return {
-      product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
-      double: data.get("sides") === "double", finish: data.get("finish"), rush: data.get("speed") === "rush"
-    };
-  }
-
-  function showEstimate() {
-    const form = view.querySelector('[data-form="order"]');
-    const output = view.querySelector("#estimate");
-    if (!form || !output) return;
-    const draft = formOrder(form);
-    if (!Number.isInteger(draft.quantity) || draft.quantity < 1) {
-      output.textContent = "部数を入力すると概算を表示します。";
-      return;
-    }
-    const single = shop.quote({ ...draft, double: false }, state.rates).total;
-    const double = shop.quote({ ...draft, double: true }, state.rates).total;
-    output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
-  }
-
-  function conditionText(item) {
-    return [
-      shop.products[item.product]?.name, item.quantity + "部", item.double ? "両面" : "片面",
-      shop.paper[item.paper]?.name, shop.finish[item.finish]?.name, item.rush ? "特急" : "通常"
-    ].join(" / ");
-  }
-
-  function trialHistory(order) {
-    const trials = order.quoteHistory ?? [];
-    if (!trials.length) return "<p>保存した試算はありません。</p>";
-    return table(["試算日時", "区分", "条件", `合計（${taxLabel}）`], trials.slice().reverse().map(trial => [
-      esc(new Date(trial.at).toLocaleString("ja-JP")), "試算（未確定）", esc(conditionText(trial)), money(trial.pricing.total)
-    ]));
+      ${field("配送先", "address", order?.address, "text", "maxlength=200")}
+      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
+      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "区分", "操作"], orderedByDeadline(state.orders).map(item => [
+        ...orderCells(item), esc(item.due), item.rush ? "特急" : "通常",
+        (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
+      ]));
   }
 
   const numberText = value => new Intl.NumberFormat("ja-JP").format(value);
@@ -373,30 +212,17 @@
 
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
-    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates, state.proofFees) : null;
-    let sheet = "";
-    if (order) {
-      const draftQuote = order.status === "received";
-      const confirmedStamp = draftQuote ? "" : order.quoteConfirmedAt
-        ? `<span class="stamp">確定時刻 ${esc(new Date(order.quoteConfirmedAt).toLocaleString("ja-JP"))}</span>`
-        : '<span class="stamp">確定時刻の記録なし</span>';
-      const actions = !draftQuote ? ""
-        : order.tentative ? button("試算を履歴に保存", "saveTrial", order.id) +
-          "<p>希望納期が未定（仮受付）のため、見積はまだ確定できません。注文を編集して納期を確定してください。</p>"
-        : button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id);
-      sheet = `<section class="panel quote-sheet"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>
-        <p class="quote-state ${draftQuote ? "unconfirmed" : "confirmed"}">${
-          draftQuote ? "【未確定】この見積は確定前の試算です。金額は変わることがあります。" : "確定済みの見積を表示しています。"}</p>
-        <p class="quote-meta">部数 <strong>${numberText(order.quantity)} 部</strong> ・ 希望納期 <strong>${esc(dueText(order))}</strong> ・ サイズ ${esc(order.size ?? "未設定")}</p>
-        ${breakdownTable(pricing, order)}
-        <p class="summary">合計 ${money(pricing.total)} ${confirmedStamp}</p>${
-          order.quoteExpiresAt ? `<p>見積の有効期限：${esc(dateText(order.quoteExpiresAt))}</p>` : ""}
-        <div class="actions no-print">${button("この見積を印刷", "printQuote", order.id)}${actions}</div></section>
-        <section class="panel"><h2>確定前の試算履歴</h2>
-        <p>試算した時点の条件と金額です。確定済みの見積とは別に保存しているため、確定額には影響しません。</p>${trialHistory(order)}</section>`;
-    }
-    return estimatePanel() + sheet + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
-      [...orderCells(item), button("見積を見る", "quote", item.id)]
+    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
+    const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
+      table(["項目", `金額（${taxLabel}）`], [
+        ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
+        ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
+      ])
+    }<p class="summary">合計 ${money(pricing.total)}</p>${
+      order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
+    }</section>`;
+    return blocks + table(["注文", "注文者", "商品", "部数", "状態", "納期", "区分", "操作"], orderedByDeadline(state.orders).map(item =>
+      [...orderCells(item), esc(item.due), item.rush ? "特急" : "通常", button("見積を見る", "quote", item.id)]
     ));
   }
 
@@ -434,7 +260,7 @@
   }
 
   function renderProof() {
-    const candidates = state.orders.filter(order => ["quoted", "proof", "returned"].includes(order.status));
+    const candidates = orderedByDeadline(state.orders.filter(order => ["quoted", "proof", "returned"].includes(order.status)));
     const order = candidates.find(item => item.id === selection);
     const form = order ? `<form class="panel" data-form="proof"><h2>注文 ${order.id} の入稿</h2><div class="grid">
       ${field("原稿ファイル名", "file", "", "text", "required maxlength=150")}
@@ -447,7 +273,7 @@
   }
 
   function renderWork() {
-    const candidates = shop.manufacturingOrders(state.orders);
+    const candidates = orderedByDeadline(shop.manufacturingOrders(state.orders));
     candidates.forEach(shop.ensureLots);
     const nextLabel = { waiting: "印刷を開始", ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
     const lotStatus = { waiting: "待機", ready: "製造待ち", printing: "印刷中", finishing: "加工中", paused: "作業中断", inspected: "検品済", delivered: "納品済" };
@@ -459,21 +285,28 @@
       ${select("中断対象ロット", "pauseLot", lotOptions, lotOptions[1] ? "1" : "")}
       ${field("中断理由", "pauseReason", "", "text", "maxlength=200")}
       ${field("再開予定", "resumeAt", "", "datetime-local")}
-      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button><button type="submit" name="pauseLot">作業中断を記録</button><button type="submit" name="resumeLot">作業再開を記録</button></div></form>` : "";
+      <label><input type="checkbox" name="materialShortage">素材不足を印で表示</label>
+      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button><button type="submit" name="pauseLot">作業中断を記録</button><button type="submit" name="resumeLot">作業再開を記録</button><button type="submit" name="materialMark">素材不足印を更新</button></div></form>` : "";
     const lotRows = candidates.flatMap(item => (item.lots || []).map(lot => {
       const advance = nextLabel[lot.status] ? button(nextLabel[lot.status], "advanceLot", `${item.id}:${lot.id}`) : "";
+      const revert = lot.status === "inspected" && item.status !== "delivered"
+        ? button("加工中へ戻す", "revertLot", `${item.id}:${lot.id}`) : "";
       const pauseInfo = lot.status === "paused"
         ? `理由: ${esc(lot.pauseReason) || "未記入"}<br>再開予定: ${esc(lot.resumeAt) || "未設定"}`
         : (lot.pauseHistory?.length ? `直近の中断: ${esc(lot.pauseHistory.at(-1).reason)}` : "-");
+      const ownerHistory = lot.ownerHistory?.map(entry => `${esc(entry.stage)} ${esc(entry.action || "担当")}: ${esc(entry.owner)}`).join(" / ") || "履歴なし";
+      const ownerInfo = `印刷: ${esc(lot.printOwner) || "未割当"}<br>加工: ${esc(lot.finishingOwner) || "未割当"}<br>履歴: ${ownerHistory}`;
+      const materialMark = lot.materialShortage ? '<strong class="material-mark">素材不足</strong>' : "-";
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
-        esc(item.workOwner) || "未割当", pauseInfo, advance + button("ロットを選択", "choose", item.id)];
+        esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, esc(item.due), item.rush ? "特急" : "通常", materialMark,
+        advance + revert + button("ロットを選択", "choose", item.id)];
     }));
-    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "中断記録", "操作"], lotRows);
+    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "担当履歴", "中断記録", "希望納期", "区分", "素材不足", "操作"], lotRows);
   }
 
   function renderDelivery() {
-    const candidates = state.orders.filter(order => ["inspected", "delivered"].includes(order.status));
-    return table(["注文", "注文者", "商品", "部数", "状態", "納品方法", "持ち込み用紙", "余剰用紙", "希望納期", "送り先の担当者", "配送先", "連絡先", "備考", "操作"], candidates.map(item => [
+    const candidates = orderedByDeadline(state.orders.filter(order => ["inspected", "delivered"].includes(order.status)));
+    return table(["注文", "注文者", "商品", "部数", "状態", "納品方法", "持ち込み用紙", "余剰用紙", "希望納期", "配送先", "操作"], candidates.map(item => [
       ...orderCells(item), shop.delivery[item.delivery], item.paper === "brought" ? "あり" : "なし",
       item.paper === "brought" ? (item.returnSurplus ? "返却する" : "返却しない") : "-",
       esc(dueText(item)), esc(item.recipient), esc(fullAddress(item)), esc(item.phone),
@@ -639,13 +472,28 @@
     if (type === "work" && order) {
       const owner = data.get("owner").trim();
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
+      const previousOwner = order.workOwner;
       order.workOwner = owner;
+      if (previousOwner !== owner) {
+        for (const lot of order.lots || []) {
+          const recordedAt = new Date().toISOString();
+          if (lot.status === "printing") {
+            if (previousOwner) lot.ownerHistory.push({ stage: "印刷", action: "引継ぎ前", owner: previousOwner, recordedAt });
+            lot.printOwner = owner;
+            lot.ownerHistory.push({ stage: "印刷", action: "引継ぎ先", owner, recordedAt });
+          } else if (lot.status === "finishing" || lot.statusBeforePause === "finishing") {
+            if (previousOwner) lot.ownerHistory.push({ stage: "加工", action: "引継ぎ前", owner: previousOwner, recordedAt });
+            lot.finishingOwner = owner;
+            lot.ownerHistory.push({ stage: "加工", action: "引継ぎ先", owner, recordedAt });
+          }
+        }
+      }
       if (event.submitter?.name === "addLot") {
         const quantity = Number(data.get("additionalQuantity"));
         if (!Number.isInteger(quantity) || quantity < 1) { notice.textContent = "追加部数を1以上で入力してください。"; return; }
         shop.ensureLots(order);
         const lotId = Math.max(...order.lots.map(lot => lot.id)) + 1;
-        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting", pauseReason: "", resumeAt: "", pauseHistory: [] });
+        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting", pauseReason: "", resumeAt: "", pauseHistory: [], printOwner: "", finishingOwner: "", ownerHistory: [] });
         order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
       }
       const lotId = Number(data.get("pauseLot"));
@@ -659,6 +507,9 @@
         lot.pauseReason = reason;
         lot.resumeAt = resumeAt;
         lot.pauseStartedAt = new Date().toISOString();
+      }
+      if (event.submitter?.name === "materialMark" && lot) {
+        lot.materialShortage = data.get("materialShortage") === "on";
       }
       if (event.submitter?.name === "resumeLot" && lot) {
         if (lot.status !== "paused") { notice.textContent = "中断中のロットを選択してください。"; return; }
@@ -698,23 +549,9 @@
     switch (action) {
       case "quote": page = "quotes"; selection = order.id; render(); view.focus(); return;
       case "edit":
-      case "choose": selection = order.id; draft = null; render(); view.querySelector("form input")?.focus(); return;
-      case "clear":
-        // 入力途中の変更があるときだけ確認する（変更がなければそのまま閉じる）
-        if (formDirty && !window.confirm("入力中の内容は保存されていません。破棄して閉じますか？")) return;
-        selection = null; draft = null; render(); view.focus(); return;
-      case "duplicate":
-        // 商品・部数・用紙・印刷面・加工だけを引き継ぐ。注文者・納期などは毎回確認して入力する
-        draft = {
-          from: order.id, product: order.product, quantity: order.quantity, paper: order.paper,
-          double: order.double, finish: order.finish, returnSurplus: order.returnSurplus,
-          size: order.size, proofRequired: order.proofRequired
-        };
-        page = "orders"; selection = null;
-        render();
-        notice.textContent = `注文 ${order.id} の仕様を引き継ぎました。注文者と希望納期を確認して入力してください。`;
-        view.querySelector('[name="customer"]')?.focus();
-        return;
+      case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
+      case "clear": selection = null; render(); view.focus(); return;
+      case "copyQuote": copyQuote(order); return;
       case "saveTrial":
         if (order.status !== "received") return;
         order.quoteHistory = [...(order.quoteHistory ?? []), {
@@ -763,7 +600,26 @@
         const selectedOrder = state.orders.find(item => item.id === orderId);
         const lot = selectedOrder?.lots?.find(item => item.id === lotId);
         if (!lot) return;
+        const previousStatus = lot.status;
         lot.status = { waiting: "ready", ready: "printing", printing: "finishing", finishing: "inspected" }[lot.status] || lot.status;
+        if (previousStatus === "ready" && lot.status === "printing") {
+          lot.printOwner = selectedOrder.workOwner;
+          if (lot.printOwner) lot.ownerHistory.push({ stage: "印刷", owner: lot.printOwner, recordedAt: new Date().toISOString() });
+        }
+        if (previousStatus === "printing" && lot.status === "finishing") {
+          lot.finishingOwner = selectedOrder.workOwner;
+          if (lot.finishingOwner) lot.ownerHistory.push({ stage: "加工", owner: lot.finishingOwner, recordedAt: new Date().toISOString() });
+        }
+        if (lot.status === "inspected") selectedOrder.status = "inspected";
+        break;
+      }
+      case "revertLot": {
+        const [orderId, lotId] = id.split(":").map(Number);
+        const selectedOrder = state.orders.find(item => item.id === orderId);
+        const lot = selectedOrder?.lots?.find(item => item.id === lotId);
+        if (!lot || selectedOrder.status === "delivered") return;
+        lot.status = "finishing";
+        selectedOrder.status = "finishing";
         break;
       }
       case "deliver": order.status = "delivered"; break;
