@@ -52,7 +52,7 @@
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates, paperRates, laminateRates, defaultRushFee);
     }
-    return { orders, rates, paperRates, paperAvailability, laminateRates, rushFee: defaultRushFee, nextId: 107 };
+    return { orders, rates, paperRates, paperAvailability, laminateRates, rushFee: defaultRushFee, rateHistory: [], nextId: 107 };
   }
 
   const api = { status, products, paper, finish, delivery, defaultRushFee, quote, manufacturingOrders, seed };

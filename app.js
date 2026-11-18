@@ -24,6 +24,7 @@
         saved.paperAvailability = { ...paperAvailabilityDefaults, ...(saved.paperAvailability && !Array.isArray(saved.paperAvailability) ? saved.paperAvailability : {}) };
         saved.laminateRates = { ...laminateDefaults, ...(saved.laminateRates && !Array.isArray(saved.laminateRates) ? saved.laminateRates : {}) };
         saved.rushFee = saved.rushFee ?? shop.defaultRushFee;
+        saved.rateHistory = Array.isArray(saved.rateHistory) ? saved.rateHistory : [];
         return saved;
       }
     } catch (error) {
@@ -173,8 +174,16 @@
       <h3>特急サービス料金</h3>
       <p>特急を選択した注文1件あたりの料金です。</p>
       ${field("特急料金（円）", "rushFee", state.rushFee, "number", "required min=0 max=100000 step=1")}
+      <h3>変更記録</h3>
+      ${field("変更者名", "changedBy", "", "text", "required maxlength=100")}
       <div class="actions"><button>単価を保存</button></div></form>`
-      + table(["加工", "1注文あたり"], Object.entries(shop.finish).filter(([key]) => key !== "laminate").map(([, item]) => [esc(item.name), money(item.fee)]));
+      + table(["加工", "1注文あたり"], Object.entries(shop.finish).filter(([key]) => key !== "laminate").map(([, item]) => [esc(item.name), money(item.fee)]))
+      + `<section class="panel"><h3>料金変更履歴</h3>${state.rateHistory.length
+        ? table(["変更日時", "変更者", "料金項目", "変更前", "変更後"], state.rateHistory.slice().reverse().map(entry => [
+          esc(new Date(entry.changedAt).toLocaleString("ja-JP")), esc(entry.changedBy), esc(entry.item),
+          money(entry.before), money(entry.after)
+        ]))
+        : "<p>料金変更履歴はありません。</p>"}</section>`;
   }
 
   const renderers = { orders: renderOrders, quotes: renderQuotes, proof: renderProof, work: renderWork, delivery: renderDelivery, rates: renderRates };
@@ -233,11 +242,51 @@
       order.workOwner = owner;
     }
     if (type === "rates") {
-      for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
-      for (const paper of Object.keys(shop.paper)) state.paperRates[paper] = Number(data.get("paper_" + paper));
+      const changedBy = String(data.get("changedBy") ?? "").trim();
+      if (!changedBy) {
+        notice.textContent = "変更者名を入力してください。";
+        return;
+      }
+      const readRate = name => {
+        const raw = data.get(name);
+        const value = Number(raw);
+        return raw === null || !Number.isInteger(value) || value < 0 || value > 100000 ? null : value;
+      };
+      const productRates = {};
+      const paperRates = {};
+      const laminateRates = {};
+      const changes = [];
+      const collectChange = (item, before, after) => {
+        if (before !== after) changes.push({ item, before, after });
+      };
+      for (const [product, details] of Object.entries(shop.products)) {
+        const value = readRate(product);
+        if (value === null) { notice.textContent = "商品単価は0〜100,000円の整数で入力してください。"; return; }
+        productRates[product] = value;
+        collectChange("印刷代：" + details.name, state.rates[product], value);
+      }
+      for (const [paper, details] of Object.entries(shop.paper)) {
+        const value = readRate("paper_" + paper);
+        if (value === null) { notice.textContent = "用紙代は0〜100,000円の整数で入力してください。"; return; }
+        paperRates[paper] = value;
+        collectChange("用紙代：" + details.name, state.paperRates[paper], value);
+      }
+      for (const [product, details] of Object.entries(shop.products)) {
+        const value = readRate("laminate_" + product);
+        if (value === null) { notice.textContent = "ラミネート料金は0〜100,000円の整数で入力してください。"; return; }
+        laminateRates[product] = value;
+        collectChange("ラミネート料金：" + details.name, state.laminateRates[product], value);
+      }
+      const rushFee = readRate("rushFee");
+      if (rushFee === null) { notice.textContent = "特急料金は0〜100,000円の整数で入力してください。"; return; }
+      collectChange("特急料金", state.rushFee, rushFee);
+      const changedAt = new Date().toISOString();
+      state.rateHistory.push(...changes.map(change => ({ ...change, changedBy, changedAt })));
+      Object.assign(state.rates, productRates);
+      Object.assign(state.paperRates, paperRates);
+      Object.assign(state.laminateRates, laminateRates);
+      state.rushFee = rushFee;
       for (const paper of Object.keys(shop.paper)) state.paperAvailability[paper] = data.get("paperAvailability_" + paper) === "available";
-      for (const product of Object.keys(shop.products)) state.laminateRates[product] = Number(data.get("laminate_" + product));
-      state.rushFee = Number(data.get("rushFee"));
     }
     selection = null;
     update("保存しました。");
