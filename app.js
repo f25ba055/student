@@ -12,6 +12,7 @@
   let state = load();
   let page = "orders";
   let selection = null;
+  let measurementSelection = false;
   let broughtOnly = false;
 
   function load() {
@@ -130,18 +131,31 @@
       : manufacturingOrders;
     const nextLabel = { ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
     const order = candidates.find(item => item.id === selection);
-    const form = order ? `<form class="panel" data-form="owner"><h2>注文 ${order.id} の製造担当</h2><div class="grid">
+    const form = order && !measurementSelection ? `<form class="panel" data-form="owner"><h2>注文 ${order.id} の製造担当</h2><div class="grid">
       ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}</div>
       <div class="actions"><button>担当を保存</button></div></form>` : "";
     return `<label>表示対象<select id="work-paper-filter">
       <option value="all" ${broughtOnly ? "" : "selected"}>すべての用紙</option>
       <option value="brought" ${broughtOnly ? "selected" : ""}>持ち込み用紙のみ</option>
-    </select></label>` + form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "持ち込み用紙受取", "操作"], candidates.map(item => [
+    </select></label>` + form + (measurementSelection && order?.paper === "brought" && order.status === "ready" && order.broughtPaperReceived
+      ? `<form class="panel" data-form="paperMeasurement"><h2>注文 ${order.id} の持ち込み用紙サイズ（実測）</h2><div class="grid">
+        ${field("縦（mm）", "paperHeight", order.broughtPaperHeight, "number", "required min=0.01 step=any")}
+        ${field("横（mm）", "paperWidth", order.broughtPaperWidth, "number", "required min=0.01 step=any")}
+        </div><div class="actions"><button>実測寸法を保存</button></div></form>` : "")
+      + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "持ち込み用紙受取", "実測サイズ（縦×横）", "操作"], candidates.map(item => [
       ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当",
       item.paper !== "brought" ? "-" : item.status === "ready"
         ? `<input type="checkbox" data-action="receipt" data-id="${item.id}" aria-label="注文 ${item.id} の持ち込み用紙受取済み" ${item.broughtPaperReceived ? "checked" : ""}>`
         : item.broughtPaperReceived ? "受取済み" : "未確認",
+      item.paper !== "brought" ? "-" : Number.isFinite(item.broughtPaperHeight) && Number.isFinite(item.broughtPaperWidth)
+        ? `${esc(item.broughtPaperHeight)} × ${esc(item.broughtPaperWidth)} mm`
+        : "未記録",
       button("担当を設定", "choose", item.id) +
+      (item.paper === "brought" && item.status === "ready"
+        ? item.broughtPaperReceived
+          ? button(item.broughtPaperHeight && item.broughtPaperWidth ? "寸法を編集" : "寸法を記録", "measure", item.id)
+          : "受取確認後に記録"
+        : "") +
       (nextLabel[item.status] ? button(nextLabel[item.status], "advance", item.id) : "")
     ]));
   }
@@ -179,6 +193,7 @@
     if (!(next in views)) return;
     page = next;
     selection = null;
+    measurementSelection = false;
     notice.textContent = "";
     render();
     nav.querySelector('[aria-current="page"]').focus();
@@ -237,6 +252,20 @@
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
       order.workOwner = owner;
     }
+    if (type === "paperMeasurement" && order) {
+      const height = Number(data.get("paperHeight"));
+      const width = Number(data.get("paperWidth"));
+      if (order.paper !== "brought" || order.status !== "ready" || !order.broughtPaperReceived) {
+        notice.textContent = "持ち込み用紙の受け取りを確認してから寸法を記録してください。";
+        return;
+      }
+      if (!Number.isFinite(height) || height <= 0 || !Number.isFinite(width) || width <= 0) {
+        notice.textContent = "縦・横の寸法を正の数値で入力してください。";
+        return;
+      }
+      order.broughtPaperHeight = height;
+      order.broughtPaperWidth = width;
+    }
     if (type === "rates") {
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
     }
@@ -253,8 +282,9 @@
     switch (action) {
       case "quote": page = "quotes"; selection = order.id; render(); view.focus(); return;
       case "edit":
-      case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
-      case "clear": selection = null; render(); view.focus(); return;
+      case "choose": selection = order.id; measurementSelection = false; render(); view.querySelector("form input")?.focus(); return;
+      case "measure": selection = order.id; measurementSelection = true; render(); view.querySelector('[name="paperHeight"]')?.focus(); return;
+      case "clear": selection = null; measurementSelection = false; render(); view.focus(); return;
       case "confirmQuote":
         order.quoteSnapshot = shop.quote(order, state.rates);
         order.status = "quoted";
@@ -267,23 +297,36 @@
         break;
       }
       case "advance":
-        if (order.status === "ready" && order.paper === "brought" && !order.broughtPaperReceived) {
-          notice.textContent = "持ち込み用紙の受け取りを確認してから印刷を開始してください。";
-          return;
+        if (order.status === "ready" && order.paper === "brought") {
+          if (!order.broughtPaperReceived) {
+            notice.textContent = "持ち込み用紙の受け取りを確認してから印刷を開始してください。";
+            return;
+          }
+          if (!(Number.isFinite(order.broughtPaperHeight) && order.broughtPaperHeight > 0
+            && Number.isFinite(order.broughtPaperWidth) && order.broughtPaperWidth > 0)) {
+            notice.textContent = "持ち込み用紙の縦・横サイズを記録してから印刷を開始してください。";
+            return;
+          }
         }
         order.status = { ready: "printing", printing: "finishing", finishing: "inspected" }[order.status];
         break;
       case "deliver": order.status = "delivered"; break;
       default: return;
     }
-    if (page !== "quotes") selection = null;
-    update("注文 " + order.id + " を更新しました。");
+    if (page !== "quotes") {
+      selection = null;
+      measurementSelection = false;
+    }
+    update(type === "paperMeasurement"
+      ? "注文 " + order.id + " の持ち込み用紙の実測寸法を保存しました。"
+      : "注文 " + order.id + " を更新しました。");
   });
 
   document.querySelector("#reset").addEventListener("click", () => {
     if (!window.confirm("このブラウザの注文と料金をサンプルに戻しますか？")) return;
     state = shop.seed();
     selection = null;
+    measurementSelection = false;
     update("サンプルに戻しました。");
   });
 
