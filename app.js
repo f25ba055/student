@@ -191,10 +191,12 @@
       const pauseInfo = lot.status === "paused"
         ? `理由: ${esc(lot.pauseReason) || "未記入"}<br>再開予定: ${esc(lot.resumeAt) || "未設定"}`
         : (lot.pauseHistory?.length ? `直近の中断: ${esc(lot.pauseHistory.at(-1).reason)}` : "-");
+      const ownerHistory = lot.ownerHistory?.map(entry => `${esc(entry.stage)}: ${esc(entry.owner)}`).join(" / ") || "履歴なし";
+      const ownerInfo = `印刷: ${esc(lot.printOwner) || "未割当"}<br>加工: ${esc(lot.finishingOwner) || "未割当"}<br>履歴: ${ownerHistory}`;
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
-        esc(item.workOwner) || "未割当", pauseInfo, advance + revert + button("ロットを選択", "choose", item.id)];
+        esc(item.workOwner) || "未割当", ownerInfo, pauseInfo, advance + revert + button("ロットを選択", "choose", item.id)];
     }));
-    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "中断記録", "操作"], lotRows);
+    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "担当履歴", "中断記録", "操作"], lotRows);
   }
 
   function renderDelivery() {
@@ -284,13 +286,25 @@
     if (type === "work" && order) {
       const owner = data.get("owner").trim();
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
+      const previousOwner = order.workOwner;
       order.workOwner = owner;
+      if (previousOwner !== owner) {
+        for (const lot of order.lots || []) {
+          if (lot.status === "printing") {
+            lot.printOwner = owner;
+            lot.ownerHistory.push({ stage: "印刷", owner, recordedAt: new Date().toISOString() });
+          } else if (lot.status === "finishing" || lot.statusBeforePause === "finishing") {
+            lot.finishingOwner = owner;
+            lot.ownerHistory.push({ stage: "加工", owner, recordedAt: new Date().toISOString() });
+          }
+        }
+      }
       if (event.submitter?.name === "addLot") {
         const quantity = Number(data.get("additionalQuantity"));
         if (!Number.isInteger(quantity) || quantity < 1) { notice.textContent = "追加部数を1以上で入力してください。"; return; }
         shop.ensureLots(order);
         const lotId = Math.max(...order.lots.map(lot => lot.id)) + 1;
-        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting", pauseReason: "", resumeAt: "", pauseHistory: [] });
+        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting", pauseReason: "", resumeAt: "", pauseHistory: [], printOwner: "", finishingOwner: "", ownerHistory: [] });
         order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
       }
       const lotId = Number(data.get("pauseLot"));
@@ -365,7 +379,16 @@
         const selectedOrder = state.orders.find(item => item.id === orderId);
         const lot = selectedOrder?.lots?.find(item => item.id === lotId);
         if (!lot) return;
+        const previousStatus = lot.status;
         lot.status = { waiting: "ready", ready: "printing", printing: "finishing", finishing: "inspected" }[lot.status] || lot.status;
+        if (previousStatus === "ready" && lot.status === "printing") {
+          lot.printOwner = selectedOrder.workOwner;
+          if (lot.printOwner) lot.ownerHistory.push({ stage: "印刷", owner: lot.printOwner, recordedAt: new Date().toISOString() });
+        }
+        if (previousStatus === "printing" && lot.status === "finishing") {
+          lot.finishingOwner = selectedOrder.workOwner;
+          if (lot.finishingOwner) lot.ownerHistory.push({ stage: "加工", owner: lot.finishingOwner, recordedAt: new Date().toISOString() });
+        }
         if (lot.status === "inspected") selectedOrder.status = "inspected";
         break;
       }
