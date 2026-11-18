@@ -14,11 +14,11 @@
   const finish = { none: { name: "なし", fee: 0 }, fold: { name: "折り加工", fee: 500 }, laminate: { name: "ラミネート", fee: 1000 } };
   const delivery = { pickup: "店頭受取", ship: "配送" };
 
-  function quote(order, rates) {
+  function quote(order, rates, paperRates = null) {
     const printing = Number(rates[order.product]) * order.quantity * (order.double ? 2 : 1);
     const finishing = finish[order.finish].fee;
     const rush = order.rush ? 1000 : 0;
-    const paperCost = paper[order.paper].unit * order.quantity;
+    const paperCost = Number(paperRates?.[order.paper] ?? paper[order.paper].unit) * order.quantity;
     const discount = order.quantity >= 1000 ? Math.floor(printing * 0.1) : 0;
     const subtotal = printing + paperCost + finishing + rush;
     return { printing, paperCost, finishing, rush, discount, total: subtotal - discount };
@@ -43,10 +43,11 @@
       { id: 106, customer: "まちなか図書室", status: "inspected", product: "poster", quantity: 12, delivery: "ship", address: "中央通り2-8", proofFile: "library-v1.pdf", revision: 1 }
     ].map(order => ({ ...common, ...order }));
     const rates = Object.fromEntries(Object.entries(products).map(([key, value]) => [key, value.unit]));
+    const paperRates = Object.fromEntries(Object.entries(paper).map(([key, value]) => [key, value.unit]));
     for (const order of orders) {
-      if (order.status !== "received") order.quoteSnapshot = quote(order, rates);
+      if (order.status !== "received") order.quoteSnapshot = quote(order, rates, paperRates);
     }
-    return { orders, rates, nextId: 107 };
+    return { orders, rates, paperRates, nextId: 107 };
   }
 
   const api = { status, products, paper, finish, delivery, quote, manufacturingOrders, seed };

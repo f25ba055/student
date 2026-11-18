@@ -16,7 +16,11 @@
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey));
-      if (saved && Array.isArray(saved.orders) && saved.rates && Number.isInteger(saved.nextId)) return saved;
+      if (saved && Array.isArray(saved.orders) && saved.rates && Number.isInteger(saved.nextId)) {
+        const defaults = Object.fromEntries(Object.entries(shop.paper).map(([key, item]) => [key, item.unit]));
+        saved.paperRates = { ...defaults, ...(saved.paperRates && !Array.isArray(saved.paperRates) ? saved.paperRates : {}) };
+        return saved;
+      }
     } catch (error) {
       console.warn("保存データを読み込めませんでした", error);
     }
@@ -93,7 +97,7 @@
 
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
-    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
+    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates, state.paperRates) : null;
     const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
       table(["項目", "金額"], [
         ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
@@ -142,12 +146,13 @@
   }
 
   function renderRates() {
-    return `<form class="panel" data-form="rates"><h2>商品別の印刷単価</h2>
-      <p>片面1部あたりの単価です。確定済みの見積には確定時点の金額を表示します。</p>
-      <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
+    return `<form class="panel" data-form="rates"><h2>商品・用紙の単価設定</h2>
+      <p>商品は片面1部あたり、用紙は1部あたりの単価です。確定済みの見積には確定時点の金額を表示します。</p>
+      <h3>商品別の印刷単価</h3><div class="grid">${Object.entries(shop.products).map(([key, product]) =>
         field(product.name + "（円）", key, state.rates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
+      <h3>用紙代（1部あたり）</h3><div class="grid">${Object.entries(shop.paper).map(([key, item]) =>
+        field(item.name + "（円）", "paper_" + key, state.paperRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <div class="actions"><button>単価を保存</button></div></form>`
-      + table(["用紙", "1部あたり"], Object.values(shop.paper).map(item => [esc(item.name), money(item.unit)]))
       + table(["加工", "1注文あたり"], Object.values(shop.finish).map(item => [esc(item.name), money(item.fee)]));
   }
 
@@ -204,6 +209,7 @@
     }
     if (type === "rates") {
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
+      for (const paper of Object.keys(shop.paper)) state.paperRates[paper] = Number(data.get("paper_" + paper));
     }
     selection = null;
     update("保存しました。");
@@ -221,7 +227,7 @@
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
       case "confirmQuote":
-        order.quoteSnapshot = shop.quote(order, state.rates);
+        order.quoteSnapshot = shop.quote(order, state.rates, state.paperRates);
         order.status = "quoted";
         break;
       case "approve": order.status = "ready"; break;
