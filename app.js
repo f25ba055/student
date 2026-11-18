@@ -9,6 +9,8 @@
   const notice = document.querySelector("#notice");
   const money = value => new Intl.NumberFormat("ja-JP").format(value) + " 円";
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+  const minimumQuantities = { "カード": 50 };
+  const minimumQuantity = productKey => minimumQuantities[shop.products[productKey]?.name] ?? 1;
   let state = load();
   let page = "orders";
   let selection = null;
@@ -198,6 +200,28 @@
       <div id="orderList">${ordersListHtml()}</div>`;
   }
 
+  function formOrder(form) {
+    const data = new FormData(form);
+    return {
+      product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
+      double: data.get("sides") === "double", finish: data.get("finish"), rush: data.get("speed") === "rush"
+    };
+  }
+
+  function showEstimate() {
+    const form = view.querySelector('[data-form="order"]');
+    const output = view.querySelector("#estimate");
+    if (!form || !output) return;
+    const draft = formOrder(form);
+    if (!Number.isInteger(draft.quantity) || draft.quantity < 1) {
+      output.textContent = "部数を入力すると概算を表示します。";
+      return;
+    }
+    const single = shop.quote({ ...draft, double: false }, state.rates).total;
+    const double = shop.quote({ ...draft, double: true }, state.rates).total;
+    output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
+  }
+
   function conditionText(item) {
     return [
       shop.products[item.product]?.name, item.quantity + "部", item.double ? "両面" : "片面",
@@ -208,7 +232,7 @@
   function trialHistory(order) {
     const trials = order.quoteHistory ?? [];
     if (!trials.length) return "<p>保存した試算はありません。</p>";
-    return table(["試算日時", "区分", "条件", "合計"], trials.slice().reverse().map(trial => [
+    return table(["試算日時", "区分", "条件", `合計（${taxLabel}）`], trials.slice().reverse().map(trial => [
       esc(new Date(trial.at).toLocaleString("ja-JP")), "試算（未確定）", esc(conditionText(trial)), money(trial.pricing.total)
     ]));
   }
@@ -253,6 +277,39 @@
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
       [...orderCells(item), button("見積を見る", "quote", item.id)]
     ));
+  }
+
+  function quoteText(order) {
+    const pricing = order.quoteSnapshot ?? shop.quote(order, state.rates);
+    return [
+      `【お見積り】注文 ${order.id} ${order.customer} 様`,
+      `${shop.products[order.product]?.name} / ${order.quantity}部 / ${order.double ? "両面" : "片面"} / ${shop.paper[order.paper]?.name} / 加工：${shop.finish[order.finish]?.name} / ${order.rush ? "特急" : "通常"}`,
+      "----------------------------",
+      `印刷代：${money(pricing.printing)}`,
+      `用紙代：${money(pricing.paperCost)}`,
+      `加工費：${money(pricing.finishing)}`,
+      `特急料金：${money(pricing.rush)}`,
+      `数量割引：${money(pricing.discount ? -pricing.discount : 0)}`,
+      "----------------------------",
+      `合計：${money(pricing.total)}`,
+      order.quoteSnapshot ? "※確定済みの見積です。" : "※未確定の見積です。確定時に金額が変わる場合があります。"
+    ].join("\n");
+  }
+
+  async function copyQuote(order) {
+    const text = quoteText(order);
+    try {
+      await navigator.clipboard.writeText(text);
+      notice.textContent = `注文 ${order.id} の見積内訳をコピーしました。`;
+    } catch (error) {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.append(area);
+      area.select();
+      const copied = document.execCommand("copy");
+      area.remove();
+      notice.textContent = copied ? `注文 ${order.id} の見積内訳をコピーしました。` : "コピーできませんでした。ブラウザの設定を確認してください。";
+    }
   }
 
   function renderProof() {
@@ -320,6 +377,7 @@
       `<button type="button" data-page="${key}" ${key === page ? 'aria-current="page"' : ""}>${name}</button>`
     ).join("");
     view.innerHTML = `<h1>${views[page]}</h1>` + renderers[page]();
+    if (page === "orders") showEstimate();
   }
 
   nav.addEventListener("click", event => {
