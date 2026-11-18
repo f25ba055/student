@@ -25,7 +25,20 @@
   }
 
   function manufacturingOrders(orders) {
-    return orders.filter(order => ["returned", "ready", "printing", "finishing", "inspected"].includes(order.status));
+    return orders.filter(order => ["returned", "ready", "printing", "finishing", "inspected", "delivered"].includes(order.status));
+  }
+
+  function lotStatusFromOrder(order) {
+    return { received: "waiting", quoted: "waiting", proof: "waiting", returned: "waiting",
+      ready: "ready", printing: "printing", finishing: "finishing", inspected: "inspected", delivered: "delivered" }[order.status] || "waiting";
+  }
+
+  function ensureLots(order) {
+    if (!Array.isArray(order.lots) || !order.lots.length) {
+      order.lots = [{ id: 1, label: "初回分", quantity: order.quantity, status: lotStatusFromOrder(order) }];
+    }
+    order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
+    return order;
   }
 
   function seed() {
@@ -41,7 +54,7 @@
       { id: 104, customer: "青葉商店会", status: "received", quantity: 1000, double: true },
       { id: 105, customer: "北通りカフェ", status: "ready", product: "card", proofFile: "cafe-v1.pdf", revision: 1 },
       { id: 106, customer: "まちなか図書室", status: "inspected", product: "poster", quantity: 12, delivery: "ship", address: "中央通り2-8", proofFile: "library-v1.pdf", revision: 1 }
-    ].map(order => ({ ...common, ...order }));
+    ].map(order => ensureLots({ ...common, ...order }));
     const rates = Object.fromEntries(Object.entries(products).map(([key, value]) => [key, value.unit]));
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates);
@@ -49,7 +62,7 @@
     return { orders, rates, nextId: 107 };
   }
 
-  const api = { status, products, paper, finish, delivery, quote, manufacturingOrders, seed };
+  const api = { status, products, paper, finish, delivery, quote, manufacturingOrders, lotStatusFromOrder, ensureLots, seed };
   globalThis.PrintShop = api;
   if (typeof module !== "undefined") module.exports = api;
 })();

@@ -112,15 +112,20 @@
 
   function renderWork() {
     const candidates = shop.manufacturingOrders(state.orders);
-    const nextLabel = { ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
+    candidates.forEach(shop.ensureLots);
+    const nextLabel = { waiting: "印刷を開始", ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
+    const lotStatus = { waiting: "待機", ready: "製造待ち", printing: "印刷中", finishing: "加工中", inspected: "検品済", delivered: "納品済" };
     const order = candidates.find(item => item.id === selection);
-    const form = order ? `<form class="panel" data-form="owner"><h2>注文 ${order.id} の製造担当</h2><div class="grid">
-      ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}</div>
-      <div class="actions"><button>担当を保存</button></div></form>` : "";
-    return form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "操作"], candidates.map(item => [
-      ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当", button("担当を設定", "choose", item.id) +
-      (nextLabel[item.status] ? button(nextLabel[item.status], "advance", item.id) : "")
-    ]));
+    const form = order ? `<form class="panel" data-form="work"><h2>注文 ${order.id} の製造管理</h2><div class="grid">
+      ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}
+      ${field("追加部数", "additionalQuantity", "", "number", "min=1 max=100000 step=1")}
+      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button></div></form>` : "";
+    const lotRows = candidates.flatMap(item => (item.lots || []).map(lot => {
+      const advance = nextLabel[lot.status] ? button(nextLabel[lot.status], "advanceLot", `${item.id}:${lot.id}`) : "";
+      return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
+        esc(item.workOwner) || "未割当", advance + button("ロットを選択", "choose", item.id)];
+    }));
+    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "操作"], lotRows);
   }
 
   function renderDelivery() {
@@ -177,8 +182,14 @@
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
         return;
       }
-      if (order?.status === "received") Object.assign(order, fields);
-      else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null });
+      if (order?.status === "received") {
+        Object.assign(order, fields);
+        shop.ensureLots(order);
+      } else {
+        const newOrder = { ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null };
+        shop.ensureLots(newOrder);
+        state.orders.push(newOrder);
+      }
     }
     if (type === "proof" && order) {
       const file = data.get("file").trim();
@@ -189,6 +200,19 @@
       const owner = data.get("owner").trim();
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
       order.workOwner = owner;
+    }
+    if (type === "work" && order) {
+      const owner = data.get("owner").trim();
+      if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
+      order.workOwner = owner;
+      if (event.submitter?.name === "addLot") {
+        const quantity = Number(data.get("additionalQuantity"));
+        if (!Number.isInteger(quantity) || quantity < 1) { notice.textContent = "追加部数を1以上で入力してください。"; return; }
+        shop.ensureLots(order);
+        const lotId = Math.max(...order.lots.map(lot => lot.id)) + 1;
+        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting" });
+        order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
+      }
     }
     if (type === "rates") {
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
@@ -201,7 +225,8 @@
     const control = event.target.closest("button[data-action]");
     if (!control) return;
     const { action, id } = control.dataset;
-    const order = state.orders.find(item => item.id === Number(id));
+    const orderId = action === "advanceLot" ? Number(id.split(":")[0]) : Number(id);
+    const order = state.orders.find(item => item.id === orderId);
     if (!order) return;
     switch (action) {
       case "quote": page = "quotes"; selection = order.id; render(); view.focus(); return;
@@ -222,6 +247,14 @@
       case "advance":
         order.status = { ready: "printing", printing: "finishing", finishing: "inspected" }[order.status];
         break;
+      case "advanceLot": {
+        const [orderId, lotId] = id.split(":").map(Number);
+        const selectedOrder = state.orders.find(item => item.id === orderId);
+        const lot = selectedOrder?.lots?.find(item => item.id === lotId);
+        if (!lot) return;
+        lot.status = { waiting: "ready", ready: "printing", printing: "finishing", finishing: "inspected" }[lot.status] || lot.status;
+        break;
+      }
       case "deliver": order.status = "delivered"; break;
       default: return;
     }
