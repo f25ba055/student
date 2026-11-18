@@ -89,6 +89,11 @@
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
     const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
+    const discountReason = !order ? "" : order.quantity < 1000
+      ? `数量割引の対象外です（部数が1000部未満：現在 ${order.quantity}部）。`
+      : pricing.discount === 0
+        ? "数量割引の対象ですが、割引計算の結果が0円です。"
+        : "";
     const blocks = !order ? "" : `<section class="panel quote-document"><div class="quote-heading"><div><h2>見積書</h2><p class="quote-order-number">注文番号：<strong>${order.id}</strong></p></div><p>注文者：${esc(order.customer)}</p></div>${
       `<label class="zero-items-toggle"><input type="checkbox" data-setting="showZeroItems" ${showZeroItems ? "checked" : ""}>0円の項目を表示</label>` +
       table(["項目", "金額"], [
@@ -96,7 +101,7 @@
         ["加工費", pricing.finishing], ["特急料金", pricing.rush],
         ["数量割引", pricing.discount ? -pricing.discount : 0]
       ].filter(([, amount]) => showZeroItems || amount !== 0).map(([label, amount]) => [label, money(amount)]))
-    }<p class="summary">合計 ${money(pricing.total)}</p>${
+    }<p class="discount-note">${esc(discountReason)}</p><p class="summary">合計 ${money(pricing.total)}</p>${
       order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
     }<div class="actions quote-actions">${button("見積書を印刷", "printQuote", order.id)}</div></section>`;
     return blocks + `<div class="quote-list">` + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
