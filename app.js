@@ -125,8 +125,12 @@
     return `<label>表示対象<select id="work-paper-filter">
       <option value="all" ${broughtOnly ? "" : "selected"}>すべての用紙</option>
       <option value="brought" ${broughtOnly ? "selected" : ""}>持ち込み用紙のみ</option>
-    </select></label>` + form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "操作"], candidates.map(item => [
-      ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当", button("担当を設定", "choose", item.id) +
+    </select></label>` + form + table(["注文", "注文者", "商品", "部数", "状態", "希望納期", "担当", "持ち込み用紙受取", "操作"], candidates.map(item => [
+      ...orderCells(item), esc(item.due), esc(item.workOwner) || "未割当",
+      item.paper !== "brought" ? "-" : item.status === "ready"
+        ? `<input type="checkbox" data-action="receipt" data-id="${item.id}" aria-label="注文 ${item.id} の持ち込み用紙受取済み" ${item.broughtPaperReceived ? "checked" : ""}>`
+        : item.broughtPaperReceived ? "受取済み" : "未確認",
+      button("担当を設定", "choose", item.id) +
       (nextLabel[item.status] ? button(nextLabel[item.status], "advance", item.id) : "")
     ]));
   }
@@ -170,10 +174,18 @@
   });
 
   view.addEventListener("change", event => {
-    if (event.target.id !== "work-paper-filter") return;
-    broughtOnly = event.target.value === "brought";
-    render();
-    view.querySelector("#work-paper-filter").focus();
+    if (event.target.id === "work-paper-filter") {
+      broughtOnly = event.target.value === "brought";
+      render();
+      view.querySelector("#work-paper-filter").focus();
+      return;
+    }
+    if (event.target.dataset.action !== "receipt") return;
+    const order = state.orders.find(item => item.id === Number(event.target.dataset.id));
+    if (!order || order.paper !== "brought" || order.status !== "ready") return;
+    order.broughtPaperReceived = event.target.checked;
+    update("持ち込み用紙の受け取りを更新しました。");
+    view.querySelector(`input[data-action="receipt"][data-id="${order.id}"]`)?.focus();
   });
 
   view.addEventListener("submit", event => {
@@ -186,7 +198,8 @@
         customer: data.get("customer").trim(), product: data.get("product"), quantity: Number(data.get("quantity")),
         paper: data.get("paper"), double: data.get("sides") === "double", finish: data.get("finish"),
         rush: data.get("speed") === "rush", proofDue: data.get("proofDue"), due: data.get("due"), delivery: data.get("delivery"), address: data.get("address").trim(),
-        returnSurplus: data.get("paper") === "brought" && data.get("returnSurplus") === "on"
+        returnSurplus: data.get("paper") === "brought" && data.get("returnSurplus") === "on",
+        broughtPaperReceived: data.get("paper") === "brought" && order?.broughtPaperReceived === true
       };
       if (!fields.customer || !fields.proofDue || (fields.delivery === "ship" && !fields.address)) {
         notice.textContent = "注文者、入力原稿締め切りと、配送の場合は配送先を入力してください。";
@@ -235,6 +248,10 @@
         break;
       }
       case "advance":
+        if (order.status === "ready" && order.paper === "brought" && !order.broughtPaperReceived) {
+          notice.textContent = "持ち込み用紙の受け取りを確認してから印刷を開始してください。";
+          return;
+        }
         order.status = { ready: "printing", printing: "finishing", finishing: "inspected" }[order.status];
         break;
       case "deliver": order.status = "delivered"; break;
