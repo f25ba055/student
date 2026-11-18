@@ -260,6 +260,28 @@
     output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
   }
 
+  function formOrder(form) {
+    const data = new FormData(form);
+    return {
+      product: data.get("product"), quantity: Number(data.get("quantity")), paper: data.get("paper"),
+      double: data.get("sides") === "double", finish: data.get("finish"), rush: data.get("speed") === "rush"
+    };
+  }
+
+  function showEstimate() {
+    const form = view.querySelector('[data-form="order"]');
+    const output = view.querySelector("#estimate");
+    if (!form || !output) return;
+    const draft = formOrder(form);
+    if (!Number.isInteger(draft.quantity) || draft.quantity < 1) {
+      output.textContent = "部数を入力すると概算を表示します。";
+      return;
+    }
+    const single = shop.quote({ ...draft, double: false }, state.rates).total;
+    const double = shop.quote({ ...draft, double: true }, state.rates).total;
+    output.textContent = `概算 ${money(draft.double ? double : single)}（片面 ${money(single)} / 両面 ${money(double)}）※保存前の目安です`;
+  }
+
   function conditionText(item) {
     return [
       shop.products[item.product]?.name, item.quantity + "部", item.double ? "両面" : "片面",
