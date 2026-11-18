@@ -1,4 +1,5 @@
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 :root { font-family: "Yu Gothic UI", "Meiryo", sans-serif; color: #14282e; background: #f3f6f5; }
 body { margin: 0; }
 .wrap { width: min(1120px, 94%); margin: auto; }
