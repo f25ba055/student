@@ -114,18 +114,25 @@
     const candidates = shop.manufacturingOrders(state.orders);
     candidates.forEach(shop.ensureLots);
     const nextLabel = { waiting: "印刷を開始", ready: "印刷を開始", printing: "加工へ進む", finishing: "検品完了" };
-    const lotStatus = { waiting: "待機", ready: "製造待ち", printing: "印刷中", finishing: "加工中", inspected: "検品済", delivered: "納品済" };
+    const lotStatus = { waiting: "待機", ready: "製造待ち", printing: "印刷中", finishing: "加工中", paused: "作業中断", inspected: "検品済", delivered: "納品済" };
     const order = candidates.find(item => item.id === selection);
+    const lotOptions = order ? Object.fromEntries(order.lots.map(lot => [lot.id, lot.label])) : {};
     const form = order ? `<form class="panel" data-form="work"><h2>注文 ${order.id} の製造管理</h2><div class="grid">
       ${field("担当者", "owner", order.workOwner, "text", "required maxlength=50")}
       ${field("追加部数", "additionalQuantity", "", "number", "min=1 max=100000 step=1")}
-      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button></div></form>` : "";
+      ${select("中断対象ロット", "pauseLot", lotOptions, lotOptions[1] ? "1" : "")}
+      ${field("中断理由", "pauseReason", "", "text", "maxlength=200")}
+      ${field("再開予定", "resumeAt", "", "datetime-local")}
+      </div><div class="actions"><button>担当を保存</button><button type="submit" name="addLot">追加分を登録</button><button type="submit" name="pauseLot">作業中断を記録</button><button type="submit" name="resumeLot">作業再開を記録</button></div></form>` : "";
     const lotRows = candidates.flatMap(item => (item.lots || []).map(lot => {
       const advance = nextLabel[lot.status] ? button(nextLabel[lot.status], "advanceLot", `${item.id}:${lot.id}`) : "";
+      const pauseInfo = lot.status === "paused"
+        ? `理由: ${esc(lot.pauseReason) || "未記入"}<br>再開予定: ${esc(lot.resumeAt) || "未設定"}`
+        : (lot.pauseHistory?.length ? `直近の中断: ${esc(lot.pauseHistory.at(-1).reason)}` : "-");
       return [item.id, esc(item.customer), esc(lot.label), lot.quantity, lotStatus[lot.status] || lot.status,
-        esc(item.workOwner) || "未割当", advance + button("ロットを選択", "choose", item.id)];
+        esc(item.workOwner) || "未割当", pauseInfo, advance + button("ロットを選択", "choose", item.id)];
     }));
-    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "操作"], lotRows);
+    return form + table(["注文", "注文者", "分割", "部数", "ロット進捗", "担当", "中断記録", "操作"], lotRows);
   }
 
   function renderDelivery() {
@@ -210,8 +217,34 @@
         if (!Number.isInteger(quantity) || quantity < 1) { notice.textContent = "追加部数を1以上で入力してください。"; return; }
         shop.ensureLots(order);
         const lotId = Math.max(...order.lots.map(lot => lot.id)) + 1;
-        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting" });
+        order.lots.push({ id: lotId, label: `追加分${lotId - 1}`, quantity, status: "waiting", pauseReason: "", resumeAt: "", pauseHistory: [] });
         order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
+      }
+      const lotId = Number(data.get("pauseLot"));
+      const lot = order.lots.find(item => item.id === lotId);
+      if (event.submitter?.name === "pauseLot" && lot) {
+        const reason = data.get("pauseReason").trim();
+        const resumeAt = data.get("resumeAt");
+        if (!reason || !resumeAt) { notice.textContent = "中断理由と再開予定を入力してください。"; return; }
+        lot.statusBeforePause = lot.status;
+        lot.status = "paused";
+        lot.pauseReason = reason;
+        lot.resumeAt = resumeAt;
+        lot.pauseStartedAt = new Date().toISOString();
+      }
+      if (event.submitter?.name === "resumeLot" && lot) {
+        if (lot.status !== "paused") { notice.textContent = "中断中のロットを選択してください。"; return; }
+        lot.pauseHistory.push({
+          reason: lot.pauseReason,
+          resumeAt: lot.resumeAt,
+          pausedAt: lot.pauseStartedAt,
+          resumedAt: new Date().toISOString()
+        });
+        lot.status = lot.statusBeforePause || "ready";
+        lot.statusBeforePause = "";
+        lot.pauseReason = "";
+        lot.resumeAt = "";
+        lot.pauseStartedAt = "";
       }
     }
     if (type === "rates") {

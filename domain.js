@@ -35,8 +35,13 @@
 
   function ensureLots(order) {
     if (!Array.isArray(order.lots) || !order.lots.length) {
-      order.lots = [{ id: 1, label: "初回分", quantity: order.quantity, status: lotStatusFromOrder(order) }];
+      order.lots = [{ id: 1, label: "初回分", quantity: order.quantity, status: lotStatusFromOrder(order), pauseReason: "", resumeAt: "", pauseHistory: [] }];
     }
+    order.lots.forEach(lot => {
+      if (!lot.pauseHistory) lot.pauseHistory = [];
+      if (!("pauseReason" in lot)) lot.pauseReason = "";
+      if (!("resumeAt" in lot)) lot.resumeAt = "";
+    });
     order.quantity = order.lots.reduce((sum, lot) => sum + Number(lot.quantity), 0);
     return order;
   }
