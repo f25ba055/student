@@ -17,8 +17,10 @@
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey));
       if (saved && Array.isArray(saved.orders) && saved.rates && Number.isInteger(saved.nextId)) {
-        const defaults = Object.fromEntries(Object.entries(shop.paper).map(([key, item]) => [key, item.unit]));
-        saved.paperRates = { ...defaults, ...(saved.paperRates && !Array.isArray(saved.paperRates) ? saved.paperRates : {}) };
+        const paperDefaults = Object.fromEntries(Object.entries(shop.paper).map(([key, item]) => [key, item.unit]));
+        const laminateDefaults = Object.fromEntries(Object.keys(shop.products).map(key => [key, shop.finish.laminate.fee]));
+        saved.paperRates = { ...paperDefaults, ...(saved.paperRates && !Array.isArray(saved.paperRates) ? saved.paperRates : {}) };
+        saved.laminateRates = { ...laminateDefaults, ...(saved.laminateRates && !Array.isArray(saved.laminateRates) ? saved.laminateRates : {}) };
         return saved;
       }
     } catch (error) {
@@ -97,7 +99,7 @@
 
   function renderQuotes() {
     const order = state.orders.find(item => item.id === selection);
-    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates, state.paperRates) : null;
+    const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates, state.paperRates, state.laminateRates) : null;
     const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
       table(["項目", "金額"], [
         ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
@@ -152,8 +154,12 @@
         field(product.name + "（円）", key, state.rates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <h3>用紙代（1部あたり）</h3><div class="grid">${Object.entries(shop.paper).map(([key, item]) =>
         field(item.name + "（円）", "paper_" + key, state.paperRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
+      <h3>ラミネート料金（1注文あたり）</h3>
+      <p>商品ごとの定額です。カードは従来どおり1注文あたりの定額を設定できます。</p>
+      <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
+        field(product.name + (key === "card" ? "（定額・円）" : "（円）"), "laminate_" + key, state.laminateRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <div class="actions"><button>単価を保存</button></div></form>`
-      + table(["加工", "1注文あたり"], Object.values(shop.finish).map(item => [esc(item.name), money(item.fee)]));
+      + table(["加工", "1注文あたり"], Object.entries(shop.finish).filter(([key]) => key !== "laminate").map(([, item]) => [esc(item.name), money(item.fee)]));
   }
 
   const renderers = { orders: renderOrders, quotes: renderQuotes, proof: renderProof, work: renderWork, delivery: renderDelivery, rates: renderRates };
@@ -210,6 +216,7 @@
     if (type === "rates") {
       for (const product of Object.keys(shop.products)) state.rates[product] = Number(data.get(product));
       for (const paper of Object.keys(shop.paper)) state.paperRates[paper] = Number(data.get("paper_" + paper));
+      for (const product of Object.keys(shop.products)) state.laminateRates[product] = Number(data.get("laminate_" + product));
     }
     selection = null;
     update("保存しました。");
@@ -227,7 +234,7 @@
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
       case "confirmQuote":
-        order.quoteSnapshot = shop.quote(order, state.rates, state.paperRates);
+        order.quoteSnapshot = shop.quote(order, state.rates, state.paperRates, state.laminateRates);
         order.status = "quoted";
         break;
       case "approve": order.status = "ready"; break;
