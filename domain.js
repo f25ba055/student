@@ -45,6 +45,9 @@
       { id: 105, customer: "北通りカフェ", status: "ready", product: "card", proofFile: "cafe-v1.pdf", revision: 1 },
       { id: 106, customer: "まちなか図書室", status: "inspected", product: "poster", quantity: 12, delivery: "ship", address: "中央通り2-8", proofFile: "library-v1.pdf", revision: 1 }
     ].map(order => ({ ...common, ...order }));
+    const productCatalog = Object.fromEntries(Object.entries(products).map(([key, value]) => [
+      key, { ...value, startDate: "" }
+    ]));
     const rates = Object.fromEntries(Object.entries(products).map(([key, value]) => [key, value.unit]));
     const paperRates = Object.fromEntries(Object.entries(paper).map(([key, value]) => [key, value.unit]));
     const paperAvailability = Object.fromEntries(Object.keys(paper).map(key => [key, true]));
@@ -52,7 +55,7 @@
     for (const order of orders) {
       if (order.status !== "received") order.quoteSnapshot = quote(order, rates, paperRates, laminateRates, defaultRushFee);
     }
-    return { orders, rates, paperRates, paperAvailability, laminateRates, rushFee: defaultRushFee, rateHistory: [], nextId: 107 };
+    return { orders, products: productCatalog, rates, paperRates, paperAvailability, laminateRates, rushFee: defaultRushFee, rateHistory: [], nextId: 107 };
   }
 
   const api = { status, products, paper, finish, delivery, defaultRushFee, quote, manufacturingOrders, seed };

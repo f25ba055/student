@@ -8,6 +8,8 @@
   const view = document.querySelector("#view");
   const notice = document.querySelector("#notice");
   const money = value => new Intl.NumberFormat("ja-JP").format(value) + " 円";
+  const localDate = (date = new Date()) =>
+    [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
   let state = load();
   let page = "orders";
@@ -17,9 +19,16 @@
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey));
       if (saved && Array.isArray(saved.orders) && saved.rates && Number.isInteger(saved.nextId)) {
+        const productDefaults = Object.fromEntries(Object.entries(shop.products).map(([key, product]) =>
+          [key, { ...product, startDate: "" }]
+        ));
+        const savedProducts = saved.products && !Array.isArray(saved.products) ? saved.products : {};
+        saved.products = { ...productDefaults, ...savedProducts };
+        const productRateDefaults = Object.fromEntries(Object.entries(saved.products).map(([key, product]) => [key, product.unit]));
         const paperDefaults = Object.fromEntries(Object.entries(shop.paper).map(([key, item]) => [key, item.unit]));
         const paperAvailabilityDefaults = Object.fromEntries(Object.keys(shop.paper).map(key => [key, true]));
-        const laminateDefaults = Object.fromEntries(Object.keys(shop.products).map(key => [key, shop.finish.laminate.fee]));
+        const laminateDefaults = Object.fromEntries(Object.keys(saved.products).map(key => [key, shop.finish.laminate.fee]));
+        saved.rates = { ...productRateDefaults, ...saved.rates };
         saved.paperRates = { ...paperDefaults, ...(saved.paperRates && !Array.isArray(saved.paperRates) ? saved.paperRates : {}) };
         saved.paperAvailability = { ...paperAvailabilityDefaults, ...(saved.paperAvailability && !Array.isArray(saved.paperAvailability) ? saved.paperAvailability : {}) };
         saved.laminateRates = { ...laminateDefaults, ...(saved.laminateRates && !Array.isArray(saved.laminateRates) ? saved.laminateRates : {}) };
@@ -45,7 +54,7 @@
   }
 
   function field(label, name, value = "", type = "text", attributes = "") {
-    return `<label>${label}<input name="${name}" type="${type}" value="${esc(value)}" ${attributes}></label>`;
+    return `<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${attributes}></label>`;
   }
 
   function select(label, name, values, selected) {
@@ -67,7 +76,7 @@
   }
 
   function orderCells(order) {
-    return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
+    return [order.id, esc(order.customer), esc(state.products[order.product]?.name ?? order.product), order.quantity, shop.status[order.status]];
   }
 
   function addressHistoryCell(order) {
@@ -83,6 +92,12 @@
 
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
+    const availableProducts = Object.fromEntries(Object.entries(state.products).filter(([, product]) =>
+      order || !product.startDate || product.startDate <= localDate()
+    ));
+    const productNotice = !order && !Object.keys(availableProducts).length
+      ? "<p>現在、受付中の商品がありません。</p>"
+      : "";
     const availablePapers = Object.fromEntries(Object.entries(shop.paper).filter(([key]) =>
       order || state.paperAvailability[key] !== false
     ));
@@ -91,7 +106,7 @@
       : "";
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
       ${field("注文者", "customer", order?.customer, "text", "required maxlength=100")}
-      ${select("商品", "product", shop.products, order?.product)}
+      ${select("商品", "product", availableProducts, order?.product)}
       ${field("部数", "quantity", order?.quantity ?? 100, "number", "required min=1 max=100000 step=1")}
       ${select("用紙", "paper", availablePapers, order?.paper)}
       ${select("印刷面", "sides", { single: "片面", double: "両面" }, order?.double ? "double" : "single")}
@@ -100,7 +115,7 @@
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
-      </div>${paperNotice}<div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
+      </div>${productNotice}${paperNotice}<div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
       + table(["注文", "注文者", "商品", "部数", "状態", "納期", "配送先・変更履歴", "操作"], state.orders.map(item => [
         ...orderCells(item), esc(item.due), addressHistoryCell(item),
         (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
@@ -160,7 +175,7 @@
   function renderRates() {
     return `<form class="panel" data-form="rates"><h2>商品・用紙の単価設定</h2>
       <p>商品は片面1部あたり、用紙は1部あたりの単価です。確定済みの見積には確定時点の金額を表示します。</p>
-      <h3>商品別の印刷単価</h3><div class="grid">${Object.entries(shop.products).map(([key, product]) =>
+      <h3>商品別の印刷単価</h3><div class="grid">${Object.entries(state.products).map(([key, product]) =>
         field(product.name + "（円）", key, state.rates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <h3>用紙代（1部あたり）</h3><div class="grid">${Object.entries(shop.paper).map(([key, item]) =>
         field(item.name + "（円）", "paper_" + key, state.paperRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
@@ -169,7 +184,7 @@
           state.paperAvailability[key] === false ? "unavailable" : "available")).join("")}</div>
       <h3>ラミネート料金（1注文あたり）</h3>
       <p>商品ごとの定額です。カードは従来どおり1注文あたりの定額を設定できます。</p>
-      <div class="grid">${Object.entries(shop.products).map(([key, product]) =>
+      <div class="grid">${Object.entries(state.products).map(([key, product]) =>
         field(product.name + (key === "card" ? "（定額・円）" : "（円）"), "laminate_" + key, state.laminateRates[key], "number", "required min=0 max=100000 step=1")).join("")}</div>
       <h3>特急サービス料金</h3>
       <p>特急を選択した注文1件あたりの料金です。</p>
@@ -177,11 +192,22 @@
       <h3>変更記録</h3>
       ${field("変更者名", "changedBy", "", "text", "required maxlength=100")}
       <div class="actions"><button>単価を保存</button></div></form>`
+      + `<section class="panel"><h3>商品公開状況</h3>${table(["商品", "開始日", "状態"], Object.values(state.products).map(product => [
+        esc(product.name), product.startDate ? esc(product.startDate) : "常時", product.startDate && product.startDate > localDate() ? "準備中" : "受付中"
+      ]))}</section>`
+      + `<form class="panel" data-form="product"><h3>準備中の商品を登録</h3>
+        <p>開始日までは新規注文の候補に表示されません。印刷単価と登録者名を入力してください。ラミネート料金は初期値1,000円で登録され、後から変更できます。</p>
+        <div class="grid">
+          ${field("商品名", "newProductName", "", "text", "required maxlength=100")}
+          ${field("片面1部あたりの印刷単価（円）", "newProductRate", "", "number", "required min=0 max=100000 step=1")}
+          ${field("開始日", "newProductStartDate", "", "date", "required")}
+          ${field("登録者名", "newProductBy", "", "text", "required maxlength=100")}
+        </div><div class="actions"><button>商品を登録</button></div></form>`
       + table(["加工", "1注文あたり"], Object.entries(shop.finish).filter(([key]) => key !== "laminate").map(([, item]) => [esc(item.name), money(item.fee)]))
       + `<section class="panel"><h3>料金変更履歴</h3>${state.rateHistory.length
         ? table(["変更日時", "変更者", "料金項目", "変更前", "変更後"], state.rateHistory.slice().reverse().map(entry => [
           esc(new Date(entry.changedAt).toLocaleString("ja-JP")), esc(entry.changedBy), esc(entry.item),
-          money(entry.before), money(entry.after)
+          entry.before == null ? "未設定" : money(entry.before), money(entry.after)
         ]))
         : "<p>料金変更履歴はありません。</p>"}</section>`;
   }
@@ -215,6 +241,11 @@
         paper: data.get("paper"), double: data.get("sides") === "double", finish: data.get("finish"),
         rush: data.get("speed") === "rush", due: data.get("due"), delivery: data.get("delivery"), address: data.get("address").trim()
       };
+      const selectedProduct = state.products[fields.product];
+      if (!selectedProduct || (!order && selectedProduct.startDate && selectedProduct.startDate > localDate())) {
+        notice.textContent = "開始日前の商品は新規注文に選択できません。";
+        return;
+      }
       if (!fields.customer || (fields.delivery === "ship" && !fields.address)) {
         notice.textContent = "注文者と、配送の場合は配送先を入力してください。";
         return;
@@ -230,6 +261,38 @@
         }
         Object.assign(order, fields);
       } else state.orders.push({ ...fields, id: state.nextId++, status: "received", proofFile: "", revision: 0, note: "", workOwner: "", quoteSnapshot: null, addressHistory: [] });
+    }
+    if (type === "product") {
+      const name = String(data.get("newProductName") ?? "").trim();
+      const rateInput = data.get("newProductRate");
+      const unit = Number(rateInput);
+      const startDate = String(data.get("newProductStartDate") ?? "");
+      const registeredBy = String(data.get("newProductBy") ?? "").trim();
+      const parsedDate = new Date(startDate + "T00:00:00");
+      if (!name || !registeredBy || rateInput === null || !Number.isInteger(unit) || unit < 0 || unit > 100000 ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || Number.isNaN(parsedDate.getTime()) || localDate(parsedDate) !== startDate) {
+        notice.textContent = "商品名、印刷単価、正しい開始日、登録者名を入力してください。";
+        return;
+      }
+      if (Object.values(state.products).some(product => product.name === name)) {
+        notice.textContent = "同じ商品名がすでに登録されています。";
+        return;
+      }
+      let productNumber = 1;
+      while (state.products["custom_" + productNumber]) productNumber++;
+      const productId = "custom_" + productNumber;
+      const laminateRate = shop.finish.laminate.fee;
+      state.products[productId] = { name, unit, startDate };
+      state.rates[productId] = unit;
+      state.laminateRates[productId] = laminateRate;
+      const changedAt = new Date().toISOString();
+      state.rateHistory.push(
+        { item: "印刷代：" + name, before: null, after: unit, changedBy: registeredBy, changedAt },
+        { item: "ラミネート料金：" + name, before: null, after: laminateRate, changedBy: registeredBy, changedAt }
+      );
+      selection = null;
+      update("商品「" + name + "」を登録しました。");
+      return;
     }
     if (type === "proof" && order) {
       const file = data.get("file").trim();
@@ -259,7 +322,7 @@
       const collectChange = (item, before, after) => {
         if (before !== after) changes.push({ item, before, after });
       };
-      for (const [product, details] of Object.entries(shop.products)) {
+      for (const [product, details] of Object.entries(state.products)) {
         const value = readRate(product);
         if (value === null) { notice.textContent = "商品単価は0〜100,000円の整数で入力してください。"; return; }
         productRates[product] = value;
@@ -271,7 +334,7 @@
         paperRates[paper] = value;
         collectChange("用紙代：" + details.name, state.paperRates[paper], value);
       }
-      for (const [product, details] of Object.entries(shop.products)) {
+      for (const [product, details] of Object.entries(state.products)) {
         const value = readRate("laminate_" + product);
         if (value === null) { notice.textContent = "ラミネート料金は0〜100,000円の整数で入力してください。"; return; }
         laminateRates[product] = value;
