@@ -12,6 +12,8 @@
   let state = load();
   let page = "orders";
   let selection = null;
+  let orderNoFilter = "";
+  let customerFilter = "";
 
   function load() {
     try {
@@ -60,6 +62,43 @@
     return [order.id, esc(order.customer), esc(shop.products[order.product].name), order.quantity, shop.status[order.status]];
   }
 
+  // 注文番号の入力を正規化する（全角数字・「#」・空白を許容）
+  function normalizeOrderNo(value) {
+    return String(value ?? "")
+      .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+      .replace(/[#＃\s]/g, "");
+  }
+
+  // 注文者名の検索語を正規化する（前後の空白除去・英字の大小を区別しない）
+  function normalizeCustomerQuery(value) {
+    return String(value ?? "").trim().toLowerCase();
+  }
+
+  function filtersActive() {
+    return Boolean(normalizeOrderNo(orderNoFilter) || normalizeCustomerQuery(customerFilter));
+  }
+
+  // 注文番号は完全一致、注文者名は部分一致。両方入力した場合は両方に一致する注文だけを表示する
+  function filteredOrders() {
+    const no = normalizeOrderNo(orderNoFilter);
+    const name = normalizeCustomerQuery(customerFilter);
+    return state.orders.filter(item =>
+      (!no || String(item.id) === no) && (!name || item.customer.toLowerCase().includes(name)));
+  }
+
+  function ordersListHtml() {
+    const rows = filteredOrders();
+    const empty = filtersActive() && !rows.length ? "<p>条件に一致する注文はありません。</p>" : "";
+    return empty || table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], rows.map(item => [
+      ...orderCells(item), esc(item.due),
+      (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
+    ]));
+  }
+
+  function orderCountText() {
+    return filtersActive() ? `${filteredOrders().length} 件を表示中（全 ${state.orders.length} 件）` : "";
+  }
+
   function renderOrders() {
     const order = state.orders.find(item => item.id === selection);
     return `<form class="panel" data-form="order"><h2>${order ? `注文 ${order.id} を編集` : "新規注文"}</h2><div class="grid">
@@ -74,11 +113,29 @@
       ${field("希望納期", "due", order?.due, "date", "required")}
       ${select("納品方法", "delivery", shop.delivery, order?.delivery)}
       ${field("配送先", "address", order?.address, "text", "maxlength=200")}
-      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>`
-      + table(["注文", "注文者", "商品", "部数", "状態", "納期", "操作"], state.orders.map(item => [
-        ...orderCells(item), esc(item.due),
-        (item.status === "received" ? button("編集", "edit", item.id) : "") + button("見積へ", "quote", item.id)
-      ]));
+      </div><div class="actions"><button>注文を保存</button>${order ? button("編集を閉じる", "clear", order.id) : ""}</div></form>
+      <div class="panel" role="search"><div class="grid">
+        <label>注文番号で絞り込み
+          <input name="orderNo" type="search" inputmode="numeric" autocomplete="off" placeholder="例：103" value="${esc(orderNoFilter)}"></label>
+        <label>注文者名で検索（一部でも可）
+          <input name="customerQuery" type="search" autocomplete="off" placeholder="例：書店" value="${esc(customerFilter)}"></label></div>
+        <p id="orderCount" aria-live="polite">${orderCountText()}</p></div>
+      <div id="orderList">${ordersListHtml()}</div>`;
+  }
+
+  function conditionText(item) {
+    return [
+      shop.products[item.product]?.name, item.quantity + "部", item.double ? "両面" : "片面",
+      shop.paper[item.paper]?.name, shop.finish[item.finish]?.name, item.rush ? "特急" : "通常"
+    ].join(" / ");
+  }
+
+  function trialHistory(order) {
+    const trials = order.quoteHistory ?? [];
+    if (!trials.length) return "<p>保存した試算はありません。</p>";
+    return table(["試算日時", "区分", "条件", "合計"], trials.slice().reverse().map(trial => [
+      esc(new Date(trial.at).toLocaleString("ja-JP")), "試算（未確定）", esc(conditionText(trial)), money(trial.pricing.total)
+    ]));
   }
 
   function renderQuotes() {
@@ -90,8 +147,11 @@
         ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
       ])
     }<p class="summary">合計 ${money(pricing.total)}</p>${
-      order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
-    }</section>`;
+      order.status === "received"
+        ? button("試算を履歴に保存", "saveTrial", order.id) + button("見積を確定", "confirmQuote", order.id)
+        : "<p>確定済みの見積を表示しています。</p>"
+    }</section><section class="panel"><h2>確定前の試算履歴</h2>
+      <p>試算した時点の条件と金額です。確定済みの見積とは別に保存しているため、確定額には影響しません。</p>${trialHistory(order)}</section>`;
     return blocks + table(["注文", "注文者", "商品", "部数", "状態", "操作"], state.orders.map(item =>
       [...orderCells(item), button("見積を見る", "quote", item.id)]
     ));
@@ -173,6 +233,16 @@
     nav.querySelector('[aria-current="page"]').focus();
   });
 
+  // 入力欄を作り直さず一覧だけ差し替える（入力中のフォーカスを保つため）
+  view.addEventListener("input", event => {
+    const { name, value } = event.target;
+    if (name === "orderNo") orderNoFilter = value;
+    else if (name === "customerQuery") customerFilter = value;
+    else return;
+    document.querySelector("#orderList").innerHTML = ordersListHtml();
+    document.querySelector("#orderCount").textContent = orderCountText();
+  });
+
   view.addEventListener("submit", event => {
     event.preventDefault();
     const data = new FormData(event.target);
@@ -207,6 +277,7 @@
       const owner = data.get("owner").trim();
       if (!owner) { notice.textContent = "担当者を入力してください。"; return; }
       order.workOwner = owner;
+      order.machine = data.get("machine");
     }
     if (type === "work" && order) {
       const owner = data.get("owner").trim();
@@ -266,6 +337,13 @@
       case "edit":
       case "choose": selection = order.id; render(); view.querySelector("form input")?.focus(); return;
       case "clear": selection = null; render(); view.focus(); return;
+      case "saveTrial":
+        if (order.status !== "received") return;
+        order.quoteHistory = [...(order.quoteHistory ?? []), {
+          at: new Date().toISOString(), product: order.product, quantity: order.quantity, double: order.double,
+          paper: order.paper, finish: order.finish, rush: order.rush, pricing: shop.quote(order, state.rates)
+        }];
+        break;
       case "confirmQuote":
         order.quoteSnapshot = shop.quote(order, state.rates);
         order.status = "quoted";
