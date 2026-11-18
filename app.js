@@ -12,6 +12,7 @@
   let state = load();
   let page = "orders";
   let selection = null;
+  let showZeroItems = state.showZeroItems === true;
 
   function load() {
     try {
@@ -84,10 +85,12 @@
     const order = state.orders.find(item => item.id === selection);
     const pricing = order ? order.quoteSnapshot ?? shop.quote(order, state.rates) : null;
     const blocks = !order ? "" : `<section class="panel"><h2>注文 ${order.id} ・ ${esc(order.customer)}</h2>${
+      `<label class="zero-items-toggle"><input type="checkbox" data-setting="showZeroItems" ${showZeroItems ? "checked" : ""}>0円の項目を表示</label>` +
       table(["項目", "金額"], [
-        ["印刷代", money(pricing.printing)], ["用紙代", money(pricing.paperCost)],
-        ["加工費", money(pricing.finishing)], ["特急料金", money(pricing.rush)], ["数量割引", money(pricing.discount ? -pricing.discount : 0)]
-      ])
+        ["印刷代", pricing.printing], ["用紙代", pricing.paperCost],
+        ["加工費", pricing.finishing], ["特急料金", pricing.rush],
+        ["数量割引", pricing.discount ? -pricing.discount : 0]
+      ].filter(([, amount]) => showZeroItems || amount !== 0).map(([label, amount]) => [label, money(amount)]))
     }<p class="summary">合計 ${money(pricing.total)}</p>${
       order.status === "received" ? button("見積を確定", "confirmQuote", order.id) : "<p>確定済みの見積を表示しています。</p>"
     }</section>`;
@@ -193,6 +196,14 @@
     update("保存しました。");
   });
 
+  view.addEventListener("change", event => {
+    const setting = event.target.closest("input[data-setting]");
+    if (!setting) return;
+    showZeroItems = setting.checked;
+    state.showZeroItems = showZeroItems;
+    update(showZeroItems ? "0円の項目を表示します。" : "0円の項目を非表示にしました。");
+  });
+
   view.addEventListener("click", event => {
     const control = event.target.closest("button[data-action]");
     if (!control) return;
@@ -228,6 +239,8 @@
   document.querySelector("#reset").addEventListener("click", () => {
     if (!window.confirm("このブラウザの注文と料金をサンプルに戻しますか？")) return;
     state = shop.seed();
+    showZeroItems = false;
+    state.showZeroItems = false;
     selection = null;
     update("サンプルに戻しました。");
   });

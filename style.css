@@ -29,3 +29,5 @@ td button { white-space: nowrap; }
 #notice { min-height: 2rem; font-weight: 650; color: #094e46; }
 .summary { font-size: 1.3rem; font-weight: 720; }
 .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.zero-items-toggle { display: flex; align-items: center; gap: 7px; width: max-content; margin: 12px 0; }
+.zero-items-toggle input[type="checkbox"] { width: auto; min-height: auto; }
